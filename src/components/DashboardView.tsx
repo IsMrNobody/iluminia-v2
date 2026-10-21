@@ -294,17 +294,17 @@ export default function DashboardView({
             <MedalCounter
               value={classes.length}
               label="Materias"
-              gemIcon="/gem-green.png"
+              spriteName="librocerrado"
             />
             <MedalCounter
               value={totalStudents}
               label="Alumnos"
-              gemIcon="/gem-yellow.png"
+              spriteName="birrete"
             />
             <MedalCounter
               value={totalStudentsAtRisk}
               label="Rendimiento"
-              gemIcon="/gema-red.png"
+              spriteName="rubi"
               valueColor={totalStudentsAtRisk > 0 ? "#B91C1C" : "#15803D"}
             />
           </div>

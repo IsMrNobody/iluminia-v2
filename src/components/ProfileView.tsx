@@ -131,13 +131,15 @@ export default function ProfileView({
 
           {/* Medals */}
           <div className="row full-m justify-center gap-4">
-            <MedalCounter 
-              value={totalStudentsCount} 
-              label="Alumnos" 
+            <MedalCounter
+              value={totalStudentsCount}
+              label="Alumnos"
+              spriteName="birrete"
             />
-            <MedalCounter 
-              value={classAveragePerformance > 0 ? classAveragePerformance.toFixed(1) : "—"} 
-              label="Promedio /20" 
+            <MedalCounter
+              value={classAveragePerformance > 0 ? classAveragePerformance.toFixed(1) : "—"}
+              label="Promedio /20"
+              spriteName="medalla"
               valueColor={classAveragePerformance >= 16 ? "#15803D" : classAveragePerformance >= 10 ? "#854D0E" : "#B91C1C"}
             />
           </div>

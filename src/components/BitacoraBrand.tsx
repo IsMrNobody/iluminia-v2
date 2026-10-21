@@ -260,27 +260,96 @@ export function WaxSealNumber({
   );
 }
 
+const OBJECT_ROWS: Record<string, number> = {
+  rubi: 0,
+  esmeralda: 1,
+  gemadorada: 2,
+  libroabierto: 3,
+  librocerrado: 4,
+  escoba: 5,
+  plumablanca: 6,
+  plumaazul: 7,
+  plumaestilografica: 8,
+  lapiz: 9,
+  lupa: 10,
+  lupaconmano: 11,
+  pergamino: 12,
+  pocion: 13,
+  sistemasolar: 14,
+  brujula: 15,
+  engranaje: 16,
+  telescopio: 17,
+  coronadelaurel: 18,
+  medalla: 19,
+  birrete: 20,
+  rosetadorada: 21,
+};
+
+export function SpriteObject({
+  name = "rubi",
+  col = 0,
+  size = 28,
+  className = ""
+}: {
+  name: string;
+  col?: number;
+  size?: number;
+  className?: string;
+}) {
+  const cleanName = name.toLowerCase().replace(/[^a-z]/g, "");
+  const rowIndex = OBJECT_ROWS[cleanName] ?? 0;
+  const cols = 6;
+  const rows = 22;
+  const colIndex = Math.max(0, Math.min(cols - 1, col));
+
+  return (
+    <div
+      className={`inline-block shrink-0 overflow-hidden ${className}`}
+      style={{
+        width: `${size}px`,
+        height: `${size}px`,
+        backgroundImage: "url('/sprites-objetos.webp')",
+        backgroundSize: `${size * cols}px ${size * rows}px`,
+        backgroundPosition: `-${colIndex * size}px -${rowIndex * size}px`,
+        imageRendering: "pixelated" as any,
+      }}
+      role="img"
+      aria-label={name}
+    />
+  );
+}
+
 export function MedalCounter({
   value,
   label,
   valueColor,
-  gemIcon = "/gem-green.png",
+  gemIcon,
+  spriteName,
+  spriteCol = 0,
   className = ""
 }: {
   value: string | number;
   label: string;
   valueColor?: string;
   gemIcon?: string;
+  spriteName?: string;
+  spriteCol?: number;
   size?: number;
   className?: string;
 }) {
   return (
     <div className={`flex flex-col items-center text-center bg-[#FFF8E6] border-2 border-[#9A6A3C] rounded-xl px-2.5 py-2 shadow-2xs flex-1 sm:flex-none sm:min-w-[84px] ${className}`}>
-      <img
-        src={gemIcon}
-        alt=""
-        className="w-7 h-7 object-contain mb-1.5 mt-0.5 drop-shadow-sm"
-      />
+      {spriteName ? (
+        <div className="mb-1.5 mt-0.5 flex items-center justify-center">
+          <SpriteObject name={spriteName} col={spriteCol} size={28} />
+        </div>
+      ) : (
+        <img
+          src={gemIcon || "/gem-green.png"}
+          alt=""
+          className="w-7 h-7 object-contain mb-1.5 mt-0.5 drop-shadow-sm"
+        />
+      )}
       <b className="font-display text-base sm:text-lg font-bold leading-none mb-0.5" style={valueColor ? { color: valueColor } : undefined}>
         {value}
       </b>
