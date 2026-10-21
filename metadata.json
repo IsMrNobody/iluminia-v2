@@ -1,0 +1,6 @@
+{
+  "name": "Ilumina · Bitácora del Docente",
+  "description": "Bitácora del Docente: una interfaz cálida de papel, cuero y sellos para la gestión académica, calificaciones por lapsos y seguimiento de estudiantes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
