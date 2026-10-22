@@ -32,7 +32,8 @@ import {
 import {
   IluminaLogo,
   BrujulaLogoAnimated,
-  PolaroidAvatar
+  PolaroidAvatar,
+  SpriteObject
 } from "./components/BitacoraBrand";
 import {
   Sparkles,
@@ -415,6 +416,13 @@ export default function App() {
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isAddStudentOpen, setIsAddStudentOpen] = useState(false);
   const [isStudentGridOpen, setIsStudentGridOpen] = useState(false);
+  const [hasUnsavedSectionChanges, setHasUnsavedSectionChanges] = useState(false);
+  const [saveSectionChangesFn, setSaveSectionChangesFn] = useState<(() => void) | null>(null);
+
+  useEffect(() => {
+    setHasUnsavedSectionChanges(false);
+    setSaveSectionChangesFn(null);
+  }, [selectedClassId, viewMode]);
   const [newStudentFirst, setNewStudentFirst] = useState("");
   const [newStudentLast, setNewStudentLast] = useState("");
   const [successToast, setSuccessToast] = useState("");
@@ -1312,6 +1320,10 @@ export default function App() {
                     onAddStudent={() => setIsAddStudentOpen(true)}
                     onDeleteStudent={handleDeleteStudent}
                     onSaveStudentGrades={handleSaveStudentGrades}
+                    onPendingChangesChange={(hasChanges, saveFn) => {
+                      setHasUnsavedSectionChanges(hasChanges);
+                      setSaveSectionChangesFn(() => saveFn);
+                    }}
                   />
                 ) : (
                   <SubjectsListView
@@ -1746,6 +1758,20 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Floating Save Button when there are unsaved section changes */}
+      {hasUnsavedSectionChanges && saveSectionChangesFn && (
+        <div className="fixed bottom-40 sm:bottom-24 right-6 z-55">
+          <button
+            onClick={() => saveSectionChangesFn()}
+            className="w-14 h-14 rounded-full bg-gradient-to-br from-[#F4DFA6] to-[#E3B866] border-2 border-[#7A4B2A] shadow-[0_4px_0_#7A4B2A] flex items-center justify-center text-[#3E2514] hover:translate-y-[-2px] hover:shadow-[0_6px_0_#7A4B2A] active:translate-y-[2px] active:shadow-[0_2px_0_#7A4B2A] transition-all cursor-pointer animate-bounce"
+            title="Guardar notas modificadas"
+            aria-label="Guardar notas modificadas"
+          >
+            <SpriteObject name="libroabierto" size={32} />
+          </button>
+        </div>
+      )}
 
       {/* Floating Golden Magnifying Glass Button for Student Quick Grid */}
       {currentClass && currentClass.students && currentClass.students.length > 0 && !isStudentGridOpen && (

@@ -6,7 +6,8 @@ import {
   WaxSealNumber,
   GemProgressBar,
   PerformanceBadge,
-  MedalCounter
+  MedalCounter,
+  SpriteObject
 } from "./BitacoraBrand";
 import {
   Search,
@@ -29,6 +30,7 @@ interface ClassOverviewViewProps {
   onAddStudent: (className: string) => void;
   onDeleteStudent?: (studentId: string) => void;
   onSaveStudentGrades?: (studentId: string, updatedGrades: any) => void;
+  onPendingChangesChange?: (hasChanges: boolean, saveFn: () => void) => void;
 }
 
 type FilterType = "TODOS" | "APROBADOS" | "APLAZADOS" | "PENDIENTES";
@@ -41,11 +43,64 @@ export default function ClassOverviewView({
   onSelectStudent,
   onAddStudent,
   onDeleteStudent,
-  onSaveStudentGrades
+  onSaveStudentGrades,
+  onPendingChangesChange
 }: ClassOverviewViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<FilterType>("TODOS");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  // Local student grades state for buffering changes without immediate DB saves on every slider move
+  const [localStudents, setLocalStudents] = useState<Student[]>(section.students);
+  const [modifiedStudentIds, setModifiedStudentIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    setLocalStudents(section.students);
+    setModifiedStudentIds(new Set());
+  }, [section.id]);
+
+  const saveAllPendingChanges = () => {
+    if (!onSaveStudentGrades || modifiedStudentIds.size === 0) return;
+    modifiedStudentIds.forEach(stdId => {
+      const std = localStudents.find(s => s.id === stdId);
+      if (std) {
+        onSaveStudentGrades(stdId, std.grades);
+      }
+    });
+    setModifiedStudentIds(new Set());
+    if (onPendingChangesChange) {
+      onPendingChangesChange(false, () => {});
+    }
+  };
+
+  useEffect(() => {
+    if (onPendingChangesChange) {
+      onPendingChangesChange(modifiedStudentIds.size > 0, saveAllPendingChanges);
+    }
+  }, [modifiedStudentIds, localStudents]);
+
+  useEffect(() => {
+    return () => {
+      if (onPendingChangesChange) {
+        onPendingChangesChange(false, () => {});
+      }
+    };
+  }, []);
+
+  const handleSafeBack = () => {
+    saveAllPendingChanges();
+    onBack();
+  };
+
+  const handleSafeSwitchSection = (sibId: string) => {
+    saveAllPendingChanges();
+    if (onSwitchSection) onSwitchSection(sibId);
+  };
+
+  const handleSafeSelectStudent = (stdId: string) => {
+    saveAllPendingChanges();
+    onSelectStudent(stdId);
+  };
 
   // New states for evaluations view and batch grading
   const [activeViewMode, setActiveViewMode] = useState<"students" | "evaluations">("students");
@@ -56,7 +111,7 @@ export default function ClassOverviewView({
   }, [section.id, activeViewMode, selectedEvaluationKey]);
 
   const activeLapsoNum = (section.lapso || 1) as 1 | 2 | 3;
-  const sampleStudent = section.students?.[0];
+  const sampleStudent = localStudents?.[0];
   const lapsoData = sampleStudent?.grades?.[activeLapsoNum] || sampleStudent?.grades?.[1] || {
     academic: {
       homework: { id: "hw", name: "Hoja de tarea", weight: 20, description: "" },
@@ -84,8 +139,7 @@ export default function ClassOverviewView({
   const selectedEvaluationItem = evaluationItems.find(e => e.key === selectedEvaluationKey);
 
   const handleUpdateStudentEvalScore = (stdId: string, evalKey: string, scoreVal: string) => {
-    if (!onSaveStudentGrades) return;
-    const std = section.students.find(s => s.id === stdId);
+    const std = localStudents.find(s => s.id === stdId);
     if (!std) return;
 
     const currentStdGrades = std.grades || {};
@@ -107,17 +161,18 @@ export default function ClassOverviewView({
       [activeLapsoNum]: updatedLapso
     };
 
-    onSaveStudentGrades(stdId, newGrades);
+    setLocalStudents(prev => prev.map(s => s.id === stdId ? { ...s, grades: newGrades } : s));
+    setModifiedStudentIds(prev => new Set(prev).add(stdId));
   };
 
   // Compute final score for each student based on active lapso
   const studentsWithScores = useMemo(() => {
-    return (section.students || []).map((std, idx) => ({
+    return (localStudents || []).map((std, idx) => ({
       ...std,
       listNumber: idx + 1,
       finalScore: getWeightedFinalScore(std.grades, (section.lapso || 1) as 1 | 2 | 3)
     }));
-  }, [section.students, section.lapso]);
+  }, [localStudents, section.lapso]);
 
   // Filter and search students
   const filteredStudents = useMemo(() => {
@@ -168,8 +223,8 @@ export default function ClassOverviewView({
   return (
     <div className="space-y-6">
       {/* Back chip */}
-      <button 
-        onClick={onBack}
+      <button
+        onClick={handleSafeBack}
         className="chip group"
         title="Volver a la lista de materias"
       >
@@ -187,11 +242,12 @@ export default function ClassOverviewView({
             {section.subjectName} · {section.gradeYear}
           </h1>
           <p className="sub">
-            Sección {section.sectionLetter} · {section.students.length} estudiantes en nómina • Lapso {activeLapsoNum}
+            Sección {section.sectionLetter} · {localStudents.length} estudiantes en nómina • Lapso {activeLapsoNum}
           </p>
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap">
+
           {/* Button with open book icon */}
           <button
             onClick={() => {
@@ -225,7 +281,7 @@ export default function ClassOverviewView({
             return (
               <button
                 key={sib.id}
-                onClick={() => onSwitchSection && onSwitchSection(sib.id)}
+                onClick={() => handleSafeSwitchSection(sib.id)}
                 className={`chip ${isCurrent ? "am" : ""}`}
               >
                 <span>{sib.sectionLetter}</span>
@@ -266,12 +322,12 @@ export default function ClassOverviewView({
               </div>
 
               <span className="text-xs font-bold font-mono bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-xl">
-                {section.students.length} Estudiantes
+                {localStudents.length} Estudiantes
               </span>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {section.students.map((std, idx) => {
+              {localStudents.map((std, idx) => {
                 const lapsoData = std.grades?.[activeLapsoNum] || std.grades?.[1];
                 const currentScore = lapsoData?.academic?.[selectedEvaluationKey]?.score ?? lapsoData?.ethical?.[selectedEvaluationKey]?.score ?? "";
                 const scoreNum = typeof currentScore === "number" ? currentScore : (currentScore !== "" ? parseFloat(currentScore) || 0 : 0);
@@ -337,7 +393,7 @@ export default function ClassOverviewView({
               {evaluationItems.map((ev) => {
                 let sum = 0;
                 let count = 0;
-                section.students?.forEach(std => {
+                localStudents?.forEach(std => {
                   const lapsoData = std.grades?.[activeLapsoNum] || std.grades?.[1];
                   const sc = lapsoData?.academic?.[ev.key]?.score ?? lapsoData?.ethical?.[ev.key]?.score;
                   if (sc !== undefined && sc > 0) {
@@ -503,7 +559,7 @@ export default function ClassOverviewView({
                     {/* Action Button: Calificar alumno */}
                     <div className="flex items-center gap-2 mt-3">
                       <button
-                        onClick={() => onSelectStudent(std.id)}
+                        onClick={() => handleSafeSelectStudent(std.id)}
                         className="btn s w"
                       >
                         <Edit3 className="w-4 h-4 text-[#D97706]" />

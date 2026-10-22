@@ -184,9 +184,14 @@ export function GemProgressBar({
 }) {
   const safePercent = Math.min(100, Math.max(0, Math.round(percent)));
 
-  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+  const handlePointerDown = (e: React.PointerEvent<HTMLElement>) => {
+    e.stopPropagation();
     if (!onChangeScore) return;
-    const rect = e.currentTarget.getBoundingClientRect();
+    const gbEl = e.currentTarget.closest(".gb");
+    const gtEl = gbEl?.querySelector(".gt");
+    if (!gtEl) return;
+    const rect = gtEl.getBoundingClientRect();
+
     const updateFromEvent = (clientX: number) => {
       const x = clientX - rect.left;
       const ratio = Math.max(0, Math.min(1, x / rect.width));
@@ -194,8 +199,6 @@ export function GemProgressBar({
       const steppedScore = Math.round(rawScore * 2) / 2; // rounds to nearest 0.5
       onChangeScore(steppedScore);
     };
-
-    updateFromEvent(e.clientX);
 
     const onPointerMove = (moveEvent: PointerEvent) => {
       updateFromEvent(moveEvent.clientX);
@@ -212,14 +215,17 @@ export function GemProgressBar({
 
   return (
     <div
-      className={`gb cursor-pointer select-none touch-none ${className}`}
-      onPointerDown={handlePointerDown}
-      title="Haz clic o arrastra para ajustar la nota (0 - 20)"
+      className={`gb select-none touch-none ${className}`}
+      title="Arrastra el punto para ajustar la nota (0 - 20)"
     >
       <div className="gt">
         <i style={{ width: `${safePercent}%`, background: barColor }} />
       </div>
-      <b className="gm" style={{ left: `${safePercent}%` }} />
+      <b
+        className="gm cursor-ew-resize active:scale-110"
+        style={{ left: `${safePercent}%` }}
+        onPointerDown={handlePointerDown}
+      />
     </div>
   );
 }
@@ -288,7 +294,7 @@ const OBJECT_ROWS: Record<string, number> = {
 export function SpriteObject({
   name = "rubi",
   col = 0,
-  size = 28,
+  size = 64,
   className = ""
 }: {
   name: string;
@@ -341,7 +347,7 @@ export function MedalCounter({
     <div className={`flex flex-col items-center text-center bg-[#FFF8E6] border-2 border-[#9A6A3C] rounded-xl px-2.5 py-2 shadow-2xs flex-1 sm:flex-none sm:min-w-[84px] ${className}`}>
       {spriteName ? (
         <div className="mb-1.5 mt-0.5 flex items-center justify-center">
-          <SpriteObject name={spriteName} col={spriteCol} size={28} />
+          <SpriteObject name={spriteName} col={spriteCol} size={56} />
         </div>
       ) : (
         <img

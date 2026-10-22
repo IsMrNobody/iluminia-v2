@@ -1,0 +1,27 @@
+# Ilumina - Project Guide & Sprite Icons Reference
+
+## Sprite Icons Reference (`/sprites-objetos.webp`)
+Available icons and their row indices from top to bottom for use with `<SpriteObject>`:
+
+0. Rubí (`rubi`)
+1. Esmeralda (`esmeralda`)
+2. Gema dorada (`gemadorada`)
+3. Libro abierto (`libroabierto`)
+4. Libro cerrado (`librocerrado`)
+5. Escoba (`escoba`)
+6. Pluma blanca (`plumablanca`)
+7. Pluma azul (`plumaazul`)
+8. Pluma estilográfica (`plumaestilografica`)
+9. Lápiz (`lapiz`)
+10. Lupa (`lupa`)
+11. Lupa con mano (`lupaconmano`)
+12. Pergamino (`pergamino`)
+13. Poción (`pocion`)
+14. Sistema solar (`sistemasolar`)
+15. Brújula (`brujula`)
+16. Engranaje (`engranaje`)
+17. Telescopio (`telescopio`)
+18. Corona de laurel (`coronadelaurel`)
+19. Medalla (`medalla`)
+20. Birrete (`birrete`)
+21. Roseta dorada (`rosetadorada`)
