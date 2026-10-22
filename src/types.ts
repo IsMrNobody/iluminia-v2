@@ -55,6 +55,7 @@ export interface ClassSection {
   termPercentage: number; // progress e.g., 68%
   coverUrl?: string;
   students: Student[];
+  isDefault?: boolean;
 }
 
 export interface SubjectGroup {

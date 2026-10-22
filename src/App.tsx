@@ -850,14 +850,19 @@ export default function App() {
                 return {
                   ...cls,
                   students: convertRegisteredToClassStudents(matching),
+                  isDefault: true,
                 };
               }
             }
-            return cls;
+            return {
+              ...cls,
+              isDefault: true,
+            };
           } else {
             return {
               ...cls,
               students: [],
+              isDefault: false,
             };
           }
         });
@@ -912,15 +917,20 @@ export default function App() {
               return {
                 ...cls,
                 students: convertRegisteredToClassStudents(matching),
+                isDefault: true,
               };
             }
           }
-          return cls;
+          return {
+            ...cls,
+            isDefault: true,
+          };
         } else {
           // Explicitly empty student list for mixed/composite subjects
           return {
             ...cls,
             students: [],
+            isDefault: false,
           };
         }
       });
@@ -1301,6 +1311,7 @@ export default function App() {
                     onSelectStudent={(stdId) => setSelectedStudentId(stdId)}
                     onAddStudent={() => setIsAddStudentOpen(true)}
                     onDeleteStudent={handleDeleteStudent}
+                    onSaveStudentGrades={handleSaveStudentGrades}
                   />
                 ) : (
                   <SubjectsListView
