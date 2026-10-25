@@ -1,6 +1,7 @@
 import { TeacherProfile, RegisteredStudent, Student, ClassSection } from "../types";
 import { getSupabaseClient, hashPassword, cleanAvatarUrl, encodeAvatarWithHash } from "./supabase";
 import { createEmptyGrades } from "../mockData";
+import * as XLSX from "xlsx";
 
 const REGISTERED_STUDENTS_KEY = "ilumina_registered_students";
 const STUDENTS_METADATA_KEY = "ilumina_students_metadata";
@@ -929,4 +930,97 @@ export async function deleteTeacherByAdmin(
     success: true,
     message: "Docente eliminado correctamente.",
   };
+}
+
+/**
+ * Import students from an uploaded Excel file (supports multi-sheets: Sección A, B, C, etc.)
+ */
+export async function importStudentsFromFile(file: File): Promise<{ success: boolean; count: number; message: string }> {
+  try {
+    const data = await file.arrayBuffer();
+    const workbook = XLSX.read(data);
+    let totalImported = 0;
+
+    for (const sheetName of workbook.SheetNames) {
+      const sheet = workbook.Sheets[sheetName];
+      const rows: any[] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+      let headerRowIdx = -1;
+      let colMap: Record<string, number> = {};
+
+      for (let i = 0; i < Math.min(rows.length, 10); i++) {
+        const row = rows[i];
+        if (Array.isArray(row)) {
+          const rowStr = row.map(cell => String(cell || "").toLowerCase());
+          const hasApellido = rowStr.some(s => s.includes("apellido"));
+          const hasNombre = rowStr.some(s => s.includes("nombre"));
+          const hasCedula = rowStr.some(s => s.includes("cédula") || s.includes("cedula"));
+          if (hasApellido || hasNombre || hasCedula) {
+            headerRowIdx = i;
+            row.forEach((colName, cIdx) => {
+              const cLower = String(colName || "").toLowerCase().trim();
+              if (cLower.includes("apellido")) colMap.lastName = cIdx;
+              if (cLower.includes("nombre")) colMap.firstName = cIdx;
+              if (cLower.includes("cédula") || cLower.includes("cedula")) colMap.cedula = cIdx;
+              if (cLower.includes("año") || cLower.includes("ano")) colMap.gradeYear = cIdx;
+              if (cLower.includes("sección") || cLower.includes("seccion")) colMap.section = cIdx;
+              if (cLower.includes("correo") || cLower.includes("email")) colMap.email = cIdx;
+              if (cLower.includes("teléfono") || cLower.includes("telefono") || cLower.includes("celular")) colMap.phone = cIdx;
+            });
+            break;
+          }
+        }
+      }
+
+      if (headerRowIdx === -1) {
+        colMap = { lastName: 1, firstName: 2, cedula: 3, gradeYear: 4, section: 5, phone: 6, email: 7 };
+        headerRowIdx = 1;
+      }
+
+      for (let i = headerRowIdx + 1; i < rows.length; i++) {
+        const row = rows[i];
+        if (!Array.isArray(row) || row.length === 0) continue;
+
+        const lastName = String(row[colMap.lastName ?? 1] || "").trim();
+        const firstName = String(row[colMap.firstName ?? 2] || "").trim();
+        let cedula = String(row[colMap.cedula ?? 3] || "").trim();
+        const gradeRaw = String(row[colMap.gradeYear ?? 4] || sheetName || "1er Año").trim();
+        const sectionRaw = String(row[colMap.section ?? 5] || "A").trim().toUpperCase();
+        const email = String(row[colMap.email ?? 7] || "").trim();
+
+        if (!firstName && !lastName) continue;
+        if (!cedula) {
+          cedula = `V-${Math.floor(10000000 + Math.random() * 89999999)}`;
+        } else if (!cedula.startsWith("V-") && !cedula.startsWith("E-") && !cedula.startsWith("J-")) {
+          cedula = `V-${cedula}`;
+        }
+
+        const gradeYear = formatGradeYear(gradeRaw);
+        const sectionLetter = sectionRaw ? sectionRaw.charAt(0) : "A";
+
+        await saveRegisteredStudent({
+          firstName,
+          lastName,
+          cedula,
+          gradeYear,
+          sectionLetter,
+          email: email || undefined,
+        });
+        totalImported++;
+      }
+    }
+
+    return {
+      success: true,
+      count: totalImported,
+      message: `¡Carga masiva exitosa! Se importaron y registraron ${totalImported} estudiantes correctamente.`
+    };
+  } catch (error: any) {
+    console.error("Error importing students from Excel:", error);
+    return {
+      success: false,
+      count: 0,
+      message: `Error al procesar el archivo Excel: ${error?.message || error}`
+    };
+  }
 }

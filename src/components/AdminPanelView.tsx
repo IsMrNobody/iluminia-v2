@@ -4,10 +4,10 @@ import {
   RegisteredStudent, 
   ClassSection 
 } from "../types";
-import { 
-  getAllTeachers, 
-  createTeacherByAdmin, 
-  updateTeacherByAdmin, 
+import {
+  getAllTeachers,
+  createTeacherByAdmin,
+  updateTeacherByAdmin,
   deleteTeacherByAdmin,
   getRegisteredStudents,
   fetchRegisteredStudentsFromDatabase,
@@ -17,12 +17,13 @@ import {
   formatGradeYear,
   fetchStudentCountsByYear,
   normalizeYear,
-  getCurrentSchoolYear
+  getCurrentSchoolYear,
+  importStudentsFromFile
 } from "../lib/adminService";
-import { 
-  IluminaOwl, 
-  MedalCounter, 
-  PolaroidAvatar 
+import {
+  IluminaOwl,
+  MedalCounter,
+  PolaroidAvatar
 } from "./BitacoraBrand";
 import {
   ShieldCheck,
@@ -45,7 +46,8 @@ import {
   X,
   Filter,
   Calendar,
-  Clock
+  Clock,
+  FileSpreadsheet
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -146,6 +148,27 @@ export default function AdminPanelView({
   const [isAddStudentOpen, setIsAddStudentOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState<RegisteredStudent | null>(null);
   const [studentToDelete, setStudentToDelete] = useState<RegisteredStudent | null>(null);
+
+  // Bulk Upload State
+  const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
+  const [bulkFile, setBulkFile] = useState<File | null>(null);
+  const [isUploadingBulk, setIsUploadingBulk] = useState(false);
+
+  const handleBulkUploadSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!bulkFile) return;
+    setIsUploadingBulk(true);
+    const res = await importStudentsFromFile(bulkFile);
+    setIsUploadingBulk(false);
+    if (res.success) {
+      showToast(res.message);
+      setIsBulkUploadOpen(false);
+      setBulkFile(null);
+      await loadStudents(studentYearFilter);
+    } else {
+      showToast(res.message);
+    }
+  };
 
   // New Student Form
   const [newStudentFirst, setNewStudentFirst] = useState("");
@@ -250,26 +273,26 @@ export default function AdminPanelView({
   const [loadingStudents, setLoadingStudents] = useState(false);
 
   const initializeStudents = async () => {
-    setLoadingStudents(true);
+    // Do NOT load all students on entry. Only load counts and initial year.
+    setRegisteredStudents([]);
     try {
       const counts = await fetchStudentCountsByYear();
       setStudentsByYear(counts);
 
       let initialYear = "1er Año";
-      // If 1er Año has 0 students in DB, auto-select the first year that has registered students
-      if ((counts["1er Año"] || 0) === 0) {
-        const yearWithStudents = GRADE_YEAR_OPTIONS.find(y => (counts[y] || 0) > 0);
-        if (yearWithStudents) {
-          initialYear = yearWithStudents;
-          setStudentYearFilter(yearWithStudents);
-        }
+      const yearWithStudents = GRADE_YEAR_OPTIONS.find(y => (counts[y] || 0) > 0);
+      if (yearWithStudents) {
+        initialYear = yearWithStudents;
+        setStudentYearFilter(yearWithStudents);
       }
 
+      // Load students ONLY for the initial selected year
       const list = await fetchRegisteredStudentsFromDatabase(initialYear);
       setRegisteredStudents(list);
     } catch (e) {
       console.error(e);
-      setRegisteredStudents(getRegisteredStudents());
+      const cached = getRegisteredStudents();
+      setRegisteredStudents(cached.filter(s => formatGradeYear(s.gradeYear) === studentYearFilter));
     } finally {
       setLoadingStudents(false);
     }
@@ -279,12 +302,23 @@ export default function AdminPanelView({
     const yearToFetch = (typeof targetYear === "string" && targetYear.trim()) ? targetYear.trim() : studentYearFilter;
     setLoadingStudents(true);
     try {
-      const [list, counts] = await Promise.all([
-        fetchRegisteredStudentsFromDatabase(yearToFetch),
-        fetchStudentCountsByYear()
-      ]);
-      setRegisteredStudents(list);
-      setStudentsByYear(counts);
+      // Check local cache for this specific year first
+      const cached = getRegisteredStudents();
+      const normTarget = normalizeYear(yearToFetch);
+      const cachedForYear = cached.filter(s => normalizeYear(s.gradeYear) === normTarget);
+
+      if (cachedForYear.length > 0) {
+        setRegisteredStudents(cachedForYear);
+        const counts = await fetchStudentCountsByYear();
+        setStudentsByYear(counts);
+      } else {
+        const [list, counts] = await Promise.all([
+          fetchRegisteredStudentsFromDatabase(yearToFetch),
+          fetchStudentCountsByYear()
+        ]);
+        setRegisteredStudents(list);
+        setStudentsByYear(counts);
+      }
     } catch (e) {
       console.error(e);
       setRegisteredStudents(getRegisteredStudents());
@@ -859,6 +893,15 @@ export default function AdminPanelView({
                   <span className="hidden sm:inline">Sincronizar Materias</span>
                 </button>
               )}
+
+              <button
+                onClick={() => setIsBulkUploadOpen(true)}
+                className="px-3.5 py-2.5 rounded-xl border border-[#E5DCD0] bg-[#FBF6ED] hover:bg-[#F4EFE6] text-[#2B2623] font-extrabold text-xs tracking-wider uppercase transition cursor-pointer flex items-center gap-1.5"
+                title="Carga masiva de alumnos desde archivo Excel"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                <span className="hidden sm:inline">Carga Masiva</span>
+              </button>
 
               <button
                 onClick={() => {
@@ -1794,6 +1837,108 @@ export default function AdminPanelView({
                   Eliminar
                 </button>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ========================================================================= */}
+      {/* MODAL: CARGA MASIVA DE ALUMNOS (EXCEL)                                    */}
+      {/* ========================================================================= */}
+      <AnimatePresence>
+        {isBulkUploadOpen && (
+          <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl p-6 max-w-lg w-full border border-slate-200 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
+                  Carga Masiva de Alumnos (Excel)
+                </h3>
+                <button
+                  onClick={() => setIsBulkUploadOpen(false)}
+                  className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleBulkUploadSubmit} className="space-y-4">
+                <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-xs text-emerald-900 space-y-2">
+                  <div className="flex items-center gap-2 font-black uppercase tracking-wider">
+                    <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Instrucciones de Importación Masiva</span>
+                  </div>
+                  <p className="leading-relaxed">
+                    Sube tu archivo Excel (ej. <code className="bg-emerald-100 px-1 py-0.5 rounded font-mono font-bold text-emerald-950">DATOS-DE-ALUMNOS.xlsx</code>). El sistema procesará automáticamente todas las hojas (Sección A, B, C...) extrayendo <strong>Apellidos, Nombres, Cédula, Año Actual y Sección</strong> para inscribir a todos los alumnos en la base de datos institucional.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-600">
+                    Seleccionar Archivo Excel (.xlsx)
+                  </label>
+                  <div className="border-2 border-dashed border-slate-300 hover:border-emerald-500 rounded-2xl p-6 text-center bg-slate-50 transition cursor-pointer relative">
+                    <input
+                      type="file"
+                      accept=".xlsx, .xls, .csv"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files[0]) {
+                          setBulkFile(e.target.files[0]);
+                        }
+                      }}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    />
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                        <FileSpreadsheet className="w-6 h-6" />
+                      </div>
+                      {bulkFile ? (
+                        <div>
+                          <p className="text-xs font-bold text-slate-800">{bulkFile.name}</p>
+                          <p className="text-[10px] text-emerald-600 font-semibold mt-0.5">Archivo listo para importar</p>
+                        </div>
+                      ) : (
+                        <div>
+                          <p className="text-xs font-bold text-slate-700">Haz clic aquí o arrastra tu archivo Excel</p>
+                          <p className="text-[10px] text-slate-400 mt-0.5">Soporta formatos .xlsx, .xls</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setIsBulkUploadOpen(false)}
+                    className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs hover:bg-slate-50 transition cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!bulkFile || isUploadingBulk}
+                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs tracking-wider uppercase shadow-md shadow-emerald-600/20 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {isUploadingBulk ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Procesando e Importando...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>Importar Alumnos</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </div>
         )}
