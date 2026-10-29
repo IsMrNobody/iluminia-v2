@@ -462,8 +462,9 @@ export function importStudentsFromFile(file: File): Promise<{ success: boolean; 
 
         const current = getRegisteredStudents();
         const map = new Map<string, RegisteredStudent>();
-        current.forEach(s => map.set(s.cedula || s.id, s));
-        imported.forEach(s => map.set(s.cedula || s.id, s));
+        const getUniqueKey = (s: any) => (s.cedula && s.cedula !== "C.I. Pendiente") ? s.cedula : `${s.lastName || ""}_${s.firstName || ""}_${s.gradeYear || ""}_${s.sectionLetter || ""}`;
+        current.forEach(s => map.set(getUniqueKey(s), s));
+        imported.forEach(s => map.set(getUniqueKey(s), s));
         const merged = Array.from(map.values());
 
         if (typeof window !== "undefined") {
