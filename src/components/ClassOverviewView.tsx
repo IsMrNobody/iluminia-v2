@@ -54,17 +54,8 @@ export default function ClassOverviewView({
   const [activeFilter, setActiveFilter] = useState<FilterType>("TODOS");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  const sortStudentsByRegistration = (students: Student[]): Student[] => {
-    return [...(students || [])].sort((a: any, b: any) => {
-      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      if (timeA && timeB && timeA !== timeB) return timeA - timeB;
-      return 0;
-    });
-  };
-
   // Local student grades state for buffering changes without immediate DB saves on every slider move
-  const [localStudents, setLocalStudents] = useState<Student[]>(() => sortStudentsByRegistration(section.students));
+  const [localStudents, setLocalStudents] = useState<Student[]>(() => [...(section.students || [])]);
   const [modifiedStudentIds, setModifiedStudentIds] = useState<Set<string>>(new Set());
 
   // Handle Excel download using template with ExcelJS to preserve 100% styles and asistencia sheets
@@ -117,8 +108,8 @@ export default function ClassOverviewView({
         }
       });
 
-      // 5. Sort students by registration order
-      const sortedStudents = sortStudentsByRegistration(localStudents);
+      // 5. Use students in original registration order
+      const sortedStudents = [...localStudents];
 
       // 6. Fill student names, academic scores, and ethical grades starting at row 12
       sortedStudents.forEach((std, idx) => {
@@ -170,7 +161,7 @@ export default function ClassOverviewView({
   };
 
   useEffect(() => {
-    setLocalStudents(sortStudentsByRegistration(section.students));
+    setLocalStudents([...(section.students || [])]);
     setModifiedStudentIds(new Set());
   }, [section.id, section.students]);
 
@@ -296,7 +287,7 @@ export default function ClassOverviewView({
 
   // Compute final score for each student based on active lapso
   const studentsWithScores = useMemo(() => {
-    const sorted = sortStudentsByRegistration(localStudents);
+    const sorted = [...localStudents];
     return sorted.map((std, idx) => ({
       ...std,
       listNumber: idx + 1,

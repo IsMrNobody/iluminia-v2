@@ -1482,6 +1482,33 @@ export async function saveGradesToSupabase(
   }
 
   try {
+    // Resolve real student UUID in Supabase
+    let realAlumnoId = alumnoId;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(alumnoId);
+    if (!isUuid) {
+      const { data: foundStd } = await client
+        .from("alumnos")
+        .select("id")
+        .or(`id.eq.${alumnoId},cedula.eq.${alumnoId}`)
+        .maybeSingle();
+      if (foundStd?.id) {
+        realAlumnoId = foundStd.id;
+      } else {
+        const { data: newStd } = await client
+          .from("alumnos")
+          .insert({
+            nombres: "Estudiante",
+            apellidos: alumnoId,
+            cedula: alumnoId.startsWith("V-") ? alumnoId : null,
+          })
+          .select("id")
+          .maybeSingle();
+        if (newStd?.id) {
+          realAlumnoId = newStd.id;
+        }
+      }
+    }
+
     // 1. Ensure evaluation criteria exist in Supabase and get their IDs
     const evalMap = await ensureEvaluationCriteriaForClass(materiaId, lapso);
 
@@ -1524,14 +1551,15 @@ export async function saveGradesToSupabase(
     for (const item of scoresToUpsert) {
       const evalId = evalMap[item.key];
       if (evalId && item.score !== undefined && item.score !== null) {
+        const payload: any = {
+          evaluacion_id: evalId,
+          alumno_id: realAlumnoId,
+          materia_id: materiaId,
+          nota: item.score,
+        };
+
         const { error: califErr } = await client.from("calificaciones").upsert(
-          {
-            evaluacion_id: evalId,
-            alumno_id: alumnoId,
-            materia_id: materiaId,
-            nota: item.score,
-            updated_at: new Date().toISOString(),
-          },
+          payload,
           { onConflict: "evaluacion_id,alumno_id" }
         );
 
@@ -1540,7 +1568,7 @@ export async function saveGradesToSupabase(
             .from("calificaciones")
             .select("id")
             .eq("evaluacion_id", evalId)
-            .eq("alumno_id", alumnoId)
+            .eq("alumno_id", realAlumnoId)
             .maybeSingle();
 
           if (existingCalif?.id) {
@@ -1549,16 +1577,14 @@ export async function saveGradesToSupabase(
               .update({
                 nota: item.score,
                 materia_id: materiaId,
-                updated_at: new Date().toISOString(),
               })
               .eq("id", existingCalif.id);
           } else {
             await client.from("calificaciones").insert({
               evaluacion_id: evalId,
-              alumno_id: alumnoId,
+              alumno_id: realAlumnoId,
               materia_id: materiaId,
               nota: item.score,
-              updated_at: new Date().toISOString(),
             });
           }
         }

@@ -296,59 +296,85 @@ export async function fetchRegisteredStudentsFromDatabase(selectedYear?: string)
   const targetYearStr = typeof selectedYear === "string" ? selectedYear.trim() : "";
   const isFilteringYear = !!targetYearStr && targetYearStr !== "ALL";
 
-  const localStudents = getRegisteredStudents();
-  const hasQueriedThisSession = typeof window !== "undefined" && sessionStorage.getItem("ilumina_students_queried") === "true";
+  let supaAlumnos: any[] = [];
+  let fetchSuccessful = false;
 
-  if (hasQueriedThisSession && localStudents.length > 0) {
+  try {
+    const res = await client
+      .from("alumnos")
+      .select("*")
+      .order("list_number", { ascending: true, nullsFirst: false });
+
+    if (!res.error && res.data) {
+      supaAlumnos = res.data;
+      fetchSuccessful = true;
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem("ilumina_students_queried", "true");
+      }
+    }
+  } catch (err) {
+    console.warn("Supabase fetch exception:", err);
+  }
+
+  const localStudents = getRegisteredStudents();
+
+  if (fetchSuccessful) {
+    const mappedSupa: RegisteredStudent[] = (supaAlumnos || []).map((row: any) => {
+      const meta = extractStudentMetadata(row);
+      return {
+        id: row.id || row.cedula,
+        cedula: row.cedula || row.id,
+        firstName: row.nombres || row.firstName || "",
+        lastName: row.apellidos || row.lastName || "",
+        gradeYear: meta.gradeYear,
+        sectionLetter: meta.sectionLetter,
+        avatarUrl: cleanAvatarUrl(row.avatar_url || row.avatarUrl || ""),
+        createdAt: row.created_at || row.createdAt || new Date().toISOString(),
+        listNumber: row.list_number || 0
+      };
+    });
+
+    const map = new Map<string, RegisteredStudent>();
+    const getUniqueKey = (s: any) => (s.cedula && s.cedula !== "C.I. Pendiente") ? s.cedula : `${s.lastName || ""}_${s.firstName || ""}_${s.gradeYear || ""}_${s.sectionLetter || ""}`;
+
+    mappedSupa.forEach(s => {
+      map.set(getUniqueKey(s), s);
+      setStudentMetadata(s.cedula, { gradeYear: s.gradeYear, sectionLetter: s.sectionLetter });
+    });
+
+    localStudents.forEach(s => {
+      if (!map.has(getUniqueKey(s))) {
+        map.set(getUniqueKey(s), s);
+      }
+    });
+
+    const allCombined = Array.from(map.values()).filter(s => !isMockStudent(s)).sort((a: any, b: any) => {
+      const lnA = a.listNumber !== undefined ? a.listNumber : 999999;
+      const lnB = b.listNumber !== undefined ? b.listNumber : 999999;
+      if (lnA !== lnB) return lnA - lnB;
+      const tA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const tB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return tA - tB;
+    });
+
+    if (typeof window !== "undefined") {
+      localStorage.setItem(REGISTERED_STUDENTS_KEY, JSON.stringify(allCombined));
+    }
+
+    if (isFilteringYear) {
+      const normTarget = normalizeYear(targetYearStr);
+      return allCombined.filter(s => normalizeYear(s.gradeYear) === normTarget);
+    }
+
+    return allCombined;
+  } else {
+    console.warn("Falling back to local storage for registered students");
     if (isFilteringYear) {
       const normTarget = normalizeYear(targetYearStr);
       return localStudents.filter(s => normalizeYear(s.gradeYear) === normTarget);
     }
     return localStudents;
   }
-
-  let supaAlumnos: any[] = [];
-  try {
-    const res = await client
-      .from("alumnos")
-      .select("*")
-      .order("nombres", { ascending: true });
-    supaAlumnos = res.data || [];
-    if (typeof window !== "undefined") {
-      sessionStorage.setItem("ilumina_students_queried", "true");
-    }
-  } catch (err) {
-    console.warn("Supabase fetch exception:", err);
-  }
-
-  const mappedSupa: RegisteredStudent[] = (supaAlumnos || []).map((row: any) => {
-    const meta = extractStudentMetadata(row);
-    return {
-      id: row.id || row.cedula,
-      cedula: row.cedula || row.id,
-      firstName: row.nombres || row.firstName || "",
-      lastName: row.apellidos || row.lastName || "",
-      gradeYear: meta.gradeYear,
-      sectionLetter: meta.sectionLetter,
-      avatarUrl: cleanAvatarUrl(row.avatar_url || row.avatarUrl || ""),
-      createdAt: row.created_at || row.createdAt || new Date().toISOString()
-    };
-  });
-
-  const map = new Map<string, RegisteredStudent>();
-  const getUniqueKey = (s: any) => (s.cedula && s.cedula !== "C.I. Pendiente") ? s.cedula : `${s.lastName || ""}_${s.firstName || ""}_${s.gradeYear || ""}_${s.sectionLetter || ""}`;
-
-  localStudents.forEach(s => map.set(getUniqueKey(s), s));
-  mappedSupa.forEach(s => map.set(getUniqueKey(s), s));
-
-  const allCombined = Array.from(map.values()).filter(s => !isMockStudent(s));
-
-  if (isFilteringYear) {
-    const normTarget = normalizeYear(targetYearStr);
-    return allCombined.filter(s => normalizeYear(s.gradeYear) === normTarget);
-  }
-
-  return allCombined;
 }
 
 export async function registerStudentInDatabase(student: Omit<RegisteredStudent, "createdAt">): Promise<boolean> {

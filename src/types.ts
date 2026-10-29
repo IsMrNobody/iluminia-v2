@@ -106,4 +106,5 @@ export interface RegisteredStudent {
   sectionLetter: string; // e.g. "A", "B", "C", "D", "E", "F"
   avatarUrl?: string;
   createdAt?: string;
+  listNumber?: number;
 }
