@@ -1314,6 +1314,7 @@ export default function App() {
                   <ClassOverviewView
                     section={currentClass}
                     allSiblingSections={siblingSections}
+                    teacherName={teacher.name}
                     onSwitchSection={(secId) => setSelectedClassId(secId)}
                     onBack={() => setViewMode("subjects_list")}
                     onSelectStudent={(stdId) => setSelectedStudentId(stdId)}

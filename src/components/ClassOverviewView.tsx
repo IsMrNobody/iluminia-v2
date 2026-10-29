@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { ClassSection, Student } from "../types";
 import { getWeightedFinalScore } from "../mockData";
+import { getStudentRealCedula } from "../lib/adminService";
 import {
   PolaroidAvatar,
   WaxSealNumber,
@@ -18,12 +19,14 @@ import {
   Users,
   BookOpen,
   Check,
-  ChevronRight
+  ChevronRight,
+  Download
 } from "lucide-react";
 
 interface ClassOverviewViewProps {
   section: ClassSection;
   allSiblingSections?: ClassSection[];
+  teacherName?: string;
   onSwitchSection?: (sectionId: string) => void;
   onBack: () => void;
   onSelectStudent: (studentId: string) => void;
@@ -38,6 +41,7 @@ type FilterType = "TODOS" | "APROBADOS" | "APLAZADOS" | "PENDIENTES";
 export default function ClassOverviewView({
   section,
   allSiblingSections = [],
+  teacherName,
   onSwitchSection,
   onBack,
   onSelectStudent,
@@ -50,14 +54,125 @@ export default function ClassOverviewView({
   const [activeFilter, setActiveFilter] = useState<FilterType>("TODOS");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
+  const sortStudentsByRegistration = (students: Student[]): Student[] => {
+    return [...(students || [])].sort((a: any, b: any) => {
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      if (timeA && timeB && timeA !== timeB) return timeA - timeB;
+      return 0;
+    });
+  };
+
   // Local student grades state for buffering changes without immediate DB saves on every slider move
-  const [localStudents, setLocalStudents] = useState<Student[]>(section.students);
+  const [localStudents, setLocalStudents] = useState<Student[]>(() => sortStudentsByRegistration(section.students));
   const [modifiedStudentIds, setModifiedStudentIds] = useState<Set<string>>(new Set());
 
+  // Handle Excel download using template with ExcelJS to preserve 100% styles and asistencia sheets
+  const handleDownloadExcel = async () => {
+    try {
+      const response = await fetch('/csv/HOJAS DE ACTUACIÓN -ASISTENCIA 2026-27.xlsx');
+      if (!response.ok) {
+        throw new Error('No se pudo cargar la plantilla Excel');
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      const ExcelJS = await import('exceljs');
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(arrayBuffer);
+
+      const sheetNameUpper = `AVANCE ${section.sectionLetter.toUpperCase()}`;
+      const sheetNameTitle = `Avance ${section.sectionLetter.toUpperCase()}`;
+      const ws = workbook.worksheets.find(w => w.name.toUpperCase() === sheetNameUpper || w.name.toUpperCase() === sheetNameTitle.toUpperCase()) || workbook.worksheets[0];
+
+      if (!ws) {
+        alert(`No se encontró la hoja correspondiente a la sección ${section.sectionLetter}`);
+        return;
+      }
+
+      // 1. Set B6: Subject name & grade year
+      ws.getCell('B6').value = `${section.subjectName} · ${section.gradeYear}`;
+
+      // 2. Set B9: Teacher name
+      ws.getCell('B9').value = teacherName ? `Prof. ${teacherName}` : "Prof. Titular";
+
+      // 3. Set Evaluation Names in row 4 (C4, E4, G4, I4, K4)
+      ws.getCell('C4').value = lapsoData.academic.homework?.name || 'Evaluación 1';
+      ws.getCell('E4').value = lapsoData.academic.talentShow?.name || 'Evaluación 2';
+      ws.getCell('G4').value = lapsoData.academic.assembly?.name || 'Evaluación 3';
+      ws.getCell('I4').value = lapsoData.academic.essay?.name || 'Evaluación 4';
+      ws.getCell('K4').value = lapsoData.academic.performance?.name || 'Evaluación 5';
+
+      // 4. Set percentages in row 11 (D11, F11, H11, J11, L11)
+      const academicEvals = [
+        lapsoData.academic.homework,
+        lapsoData.academic.talentShow,
+        lapsoData.academic.assembly,
+        lapsoData.academic.essay,
+        lapsoData.academic.performance
+      ];
+
+      const weightCells = ['D11', 'F11', 'H11', 'J11', 'L11'];
+      academicEvals.forEach((ev, idx) => {
+        if (idx < weightCells.length && ev) {
+          ws.getCell(weightCells[idx]).value = ev.weight;
+        }
+      });
+
+      // 5. Sort students by registration order
+      const sortedStudents = sortStudentsByRegistration(localStudents);
+
+      // 6. Fill student names, academic scores, and ethical grades starting at row 12
+      sortedStudents.forEach((std, idx) => {
+        const rowNum = 12 + idx;
+        const fullName = `${std.firstName} ${std.lastName}`.toUpperCase();
+
+        ws.getCell(`B${rowNum}`).value = fullName;
+
+        const stdLapso = std.grades?.[activeLapsoNum] || std.grades?.[1] || lapsoData;
+        const scores = [
+          stdLapso.academic?.homework?.score,
+          stdLapso.academic?.talentShow?.score,
+          stdLapso.academic?.assembly?.score,
+          stdLapso.academic?.essay?.score,
+          stdLapso.academic?.performance?.score
+        ];
+
+        const scoreCols = ['C', 'E', 'G', 'I', 'K'];
+        scores.forEach((sc, sIdx) => {
+          if (sIdx < scoreCols.length && sc !== undefined && sc !== null && sc !== '') {
+            ws.getCell(`${scoreCols[sIdx]}${rowNum}`).value = Number(sc);
+          }
+        });
+
+        // Ethical scores (Q for Responsabilidad, R for Ajuste Social)
+        const respScore = stdLapso.ethical?.responsibility?.score;
+        if (respScore !== undefined && respScore !== null && respScore !== '') {
+          ws.getCell(`Q${rowNum}`).value = Number(respScore);
+        }
+
+        const pcScore = stdLapso.ethical?.personalCare?.score;
+        if (pcScore !== undefined && pcScore !== null && pcScore !== '') {
+          ws.getCell(`R${rowNum}`).value = Number(pcScore);
+        }
+      });
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = 'HOJAS DE ACTUACIÓN -ASISTENCIA 2026-27.xlsx';
+      anchor.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Error downloading excel:', err);
+      alert('Hubo un error al rellenar el archivo Excel. Por favor intenta de nuevo.');
+    }
+  };
+
   useEffect(() => {
-    setLocalStudents(section.students);
+    setLocalStudents(sortStudentsByRegistration(section.students));
     setModifiedStudentIds(new Set());
-  }, [section.id]);
+  }, [section.id, section.students]);
 
   const saveAllPendingChanges = () => {
     if (!onSaveStudentGrades || modifiedStudentIds.size === 0) return;
@@ -112,7 +227,7 @@ export default function ClassOverviewView({
 
   const activeLapsoNum = (section.lapso || 1) as 1 | 2 | 3;
   const sampleStudent = localStudents?.[0];
-  const lapsoData = sampleStudent?.grades?.[activeLapsoNum] || sampleStudent?.grades?.[1] || {
+  const defaultLapso = {
     academic: {
       homework: { id: "hw", name: "Hoja de tarea", weight: 20, description: "" },
       talentShow: { id: "ts", name: "Muestra de talentos", weight: 20, description: "" },
@@ -123,6 +238,20 @@ export default function ClassOverviewView({
     ethical: {
       responsibility: { id: "resp", name: "Responsabilidad", weight: 5, description: "" },
       personalCare: { id: "pc", name: "Presentación Personal", weight: 5, description: "" },
+    }
+  };
+  const sampleGrades = sampleStudent?.grades?.[activeLapsoNum] || sampleStudent?.grades?.[1];
+  const lapsoData = {
+    academic: {
+      homework: sampleGrades?.academic?.homework || defaultLapso.academic.homework,
+      talentShow: sampleGrades?.academic?.talentShow || defaultLapso.academic.talentShow,
+      assembly: sampleGrades?.academic?.assembly || defaultLapso.academic.assembly,
+      essay: sampleGrades?.academic?.essay || defaultLapso.academic.essay,
+      performance: sampleGrades?.academic?.performance || defaultLapso.academic.performance,
+    },
+    ethical: {
+      responsibility: sampleGrades?.ethical?.responsibility || defaultLapso.ethical.responsibility,
+      personalCare: sampleGrades?.ethical?.personalCare || defaultLapso.ethical.personalCare,
     }
   };
 
@@ -167,7 +296,8 @@ export default function ClassOverviewView({
 
   // Compute final score for each student based on active lapso
   const studentsWithScores = useMemo(() => {
-    return (localStudents || []).map((std, idx) => ({
+    const sorted = sortStudentsByRegistration(localStudents);
+    return sorted.map((std, idx) => ({
       ...std,
       listNumber: idx + 1,
       finalScore: getWeightedFinalScore(std.grades, (section.lapso || 1) as 1 | 2 | 3)
@@ -261,6 +391,16 @@ export default function ClassOverviewView({
             <span>{activeViewMode === "students" ? "Evaluaciones" : "Alumnos"}</span>
           </button>
 
+          {/* Download Excel Template Button */}
+          <button
+            onClick={handleDownloadExcel}
+            className="btn s flex items-center gap-2"
+            title="Descargar hoja de actuación y notas en plantilla Excel"
+          >
+            <Download className="w-4 h-4 text-[#D97706]" />
+            <span>Descargar Hoja</span>
+          </button>
+
           {section.isDefault === false && (
             <button
               onClick={() => onAddStudent(`${section.gradeYear} • ${section.subjectName}`)}
@@ -344,7 +484,12 @@ export default function ClassOverviewView({
                           <h4 className="font-display text-sm text-slate-900 truncate">
                             {std.firstName} {std.lastName}
                           </h4>
-                          <p className="text-[11px] text-slate-500 font-mono truncate">{std.id.includes("V-") ? std.id : `C.I. ${std.id}`}</p>
+                          <p className="text-[11px] text-slate-500 font-mono truncate">
+                            {(() => {
+                              const realC = getStudentRealCedula(std);
+                              return realC ? (realC.startsWith("V-") || realC.startsWith("E-") ? realC : `C.I. ${realC}`) : "C.I. Pendiente";
+                            })()}
+                          </p>
                         </div>
                       </div>
 
@@ -521,7 +666,10 @@ export default function ClassOverviewView({
                           {std.firstName} {std.lastName}
                         </h2>
                         <p className="sub truncate">
-                          {std.id.includes("V-") ? std.id : `C.I. ${std.id}`}
+                          {(() => {
+                            const realC = getStudentRealCedula(std);
+                            return realC ? (realC.startsWith("V-") || realC.startsWith("E-") ? realC : `C.I. ${realC}`) : "C.I. Pendiente";
+                          })()}
                         </p>
                       </div>
 

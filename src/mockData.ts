@@ -150,7 +150,8 @@ export function createEmptyGrades(): StudentGrades {
 }
 
 export function getWeightedFinalScore(gradesPerLapso: StudentGrades, lapso: 1 | 2 | 3 = 1): number {
-  const grades = gradesPerLapso[lapso];
+  if (!gradesPerLapso) return 0;
+  const grades = gradesPerLapso[lapso] || gradesPerLapso[1];
   if (!grades) return 0;
 
   const academicItems = grades.academic ? Object.values(grades.academic) : [];
@@ -184,7 +185,8 @@ export function getWeightedFinalScore(gradesPerLapso: StudentGrades, lapso: 1 | 
 
 // Percent completion based on criteria filled
 export function getGradingProgressPercent(gradesPerLapso: StudentGrades, lapso: 1 | 2 | 3 = 1): number {
-  const grades = gradesPerLapso[lapso];
+  if (!gradesPerLapso) return 0;
+  const grades = gradesPerLapso[lapso] || gradesPerLapso[1];
   if (!grades) return 0;
 
   const academicItems = grades.academic ? Object.values(grades.academic) : [];

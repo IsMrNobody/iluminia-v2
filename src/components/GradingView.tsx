@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Student } from "../types";
 import { getWeightedFinalScore } from "../mockData";
+import { getStudentRealCedula } from "../lib/adminService";
 import {
   IluminaOwl,
   PolaroidAvatar,
@@ -57,7 +58,7 @@ export default function GradingView({
   termEndDate,
   todayDate
 }: GradingViewProps) {
-  const lapsoData = student.grades[activeLapso] || student.grades[1] || {
+  const defaultLapso = {
     academic: {
       homework: { id: "hw", name: "Hoja de tarea", weight: 20, description: "" },
       talentShow: { id: "ts", name: "Muestra de talentos", weight: 20, description: "" },
@@ -68,6 +69,20 @@ export default function GradingView({
     ethical: {
       responsibility: { id: "resp", name: "Responsabilidad", weight: 5, description: "" },
       personalCare: { id: "pc", name: "Presentación Personal", weight: 5, description: "" },
+    }
+  };
+  const studentLapso = student?.grades?.[activeLapso] || student?.grades?.[1];
+  const lapsoData = {
+    academic: {
+      homework: studentLapso?.academic?.homework || defaultLapso.academic.homework,
+      talentShow: studentLapso?.academic?.talentShow || defaultLapso.academic.talentShow,
+      assembly: studentLapso?.academic?.assembly || defaultLapso.academic.assembly,
+      essay: studentLapso?.academic?.essay || defaultLapso.academic.essay,
+      performance: studentLapso?.academic?.performance || defaultLapso.academic.performance,
+    },
+    ethical: {
+      responsibility: studentLapso?.ethical?.responsibility || defaultLapso.ethical.responsibility,
+      personalCare: studentLapso?.ethical?.personalCare || defaultLapso.ethical.personalCare,
     }
   };
 
@@ -396,7 +411,10 @@ export default function GradingView({
                 {student.firstName} {student.lastName}
               </h1>
               <p className="sub my-1.5">
-                {student.id.includes("V-") ? student.id : `C.I. ${student.id}`}
+                {(() => {
+                  const realC = getStudentRealCedula(student);
+                  return realC ? (realC.startsWith("V-") || realC.startsWith("E-") ? realC : `C.I. ${realC}`) : "C.I. Pendiente";
+                })()}
               </p>
               <PerformanceBadge score={finalScore > 0 ? finalScore : undefined} />
             </div>
