@@ -345,6 +345,9 @@ export async function registerStudentInDatabase(student: Omit<RegisteredStudent,
       cedula: student.cedula,
       nombres: student.firstName,
       apellidos: student.lastName,
+      grado_ano: student.gradeYear,
+      ano: student.gradeYear,
+      seccion: student.sectionLetter,
       avatar_url: encodeStudentAvatar(student.avatarUrl || "", student.gradeYear, student.sectionLetter)
     };
     const { error } = await client.from("alumnos").insert([payload]);
@@ -382,11 +385,21 @@ export async function updateStudentInDatabase(cedula: string, updates: Partial<R
     if (updates.firstName !== undefined) payload.nombres = updates.firstName;
     if (updates.lastName !== undefined) payload.apellidos = updates.lastName;
     if (updates.cedula !== undefined) payload.cedula = updates.cedula;
+    if (updates.gradeYear !== undefined) {
+      payload.grado_ano = updates.gradeYear;
+      payload.ano = updates.gradeYear;
+    }
+    if (updates.sectionLetter !== undefined) {
+      payload.seccion = updates.sectionLetter;
+    }
     if (updates.avatarUrl || updates.gradeYear || updates.sectionLetter) {
       const currentReg = getRegisteredStudents().find(s => s.cedula === cedula);
       const yr = updates.gradeYear || currentReg?.gradeYear || "1er Año";
       const sec = updates.sectionLetter || currentReg?.sectionLetter || "A";
       const av = updates.avatarUrl || currentReg?.avatarUrl || "";
+      payload.grado_ano = yr;
+      payload.ano = yr;
+      payload.seccion = sec;
       payload.avatar_url = encodeStudentAvatar(av, yr, sec);
       setStudentMetadata(updates.cedula || cedula, { gradeYear: yr, sectionLetter: sec });
     }
@@ -476,6 +489,9 @@ export function importStudentsFromFile(file: File): Promise<{ success: boolean; 
                 cedula: s.cedula,
                 nombres: s.firstName,
                 apellidos: s.lastName,
+                grado_ano: s.gradeYear,
+                ano: s.gradeYear,
+                seccion: s.sectionLetter,
                 avatar_url: encodeStudentAvatar(s.avatarUrl || "", s.gradeYear, s.sectionLetter)
               };
               await client.from("alumnos").upsert([payload], { onConflict: "cedula" });
