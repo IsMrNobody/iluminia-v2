@@ -298,21 +298,11 @@ export async function fetchRegisteredStudentsFromDatabase(selectedYear?: string)
 
   let supaAlumnos: any[] = [];
   try {
-    if (isFilteringYear) {
-      const { code, num, label } = getYearSearchCodes(targetYearStr);
-      const res = await client
-        .from("alumnos")
-        .select("*")
-        .or(`email.ilike.%\${code}%,avatar_url.ilike.%yr=\${code}%,avatar_url.ilike.%yr=\${num}%`)
-        .order("nombres", { ascending: true });
-      supaAlumnos = res.data || [];
-    } else {
-      const res = await client
-        .from("alumnos")
-        .select("*")
-        .order("nombres", { ascending: true });
-      supaAlumnos = res.data || [];
-    }
+    const res = await client
+      .from("alumnos")
+      .select("*")
+      .order("nombres", { ascending: true });
+    supaAlumnos = res.data || [];
   } catch (err) {
     console.warn("Supabase fetch exception:", err);
   }
@@ -333,8 +323,11 @@ export async function fetchRegisteredStudentsFromDatabase(selectedYear?: string)
   });
 
   const map = new Map<string, RegisteredStudent>();
-  localStudents.forEach(s => map.set(s.cedula || s.id, s));
-  mappedSupa.forEach(s => map.set(s.cedula || s.id, s));
+  const getUniqueKey = (s: any) => (s.cedula && s.cedula !== "C.I. Pendiente") ? s.cedula : `${s.lastName || ""}_${s.firstName || ""}_${s.gradeYear || ""}_${s.sectionLetter || ""}`;
+
+  localStudents.forEach(s => map.set(getUniqueKey(s), s));
+  mappedSupa.forEach(s => map.set(getUniqueKey(s), s));
+
   const allCombined = Array.from(map.values()).filter(s => !isMockStudent(s));
 
   if (isFilteringYear) {
