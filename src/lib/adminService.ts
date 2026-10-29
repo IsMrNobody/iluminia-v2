@@ -434,7 +434,7 @@ export function importStudentsFromFile(file: File): Promise<{ success: boolean; 
             const gradeYearStr = String(row[4] || sheetName).trim();
             const sectionStr = String(row[5] || "A").trim();
 
-            if (cedula && (nombres || apellidos) && !cedula.toLowerCase().includes("cédula") && !cedula.toLowerCase().includes("cedula")) {
+            if ((nombres || apellidos) && !apellidos.toLowerCase().includes("apellidos") && !nombres.toLowerCase().includes("nombres")) {
               const cleanedCedula = cedula.replace(/[^0-9VvEe\-]/g, "");
               const formattedCedula = cleanedCedula.toUpperCase().startsWith("V-") || cleanedCedula.toUpperCase().startsWith("E-")
                 ? cleanedCedula.toUpperCase()
@@ -444,7 +444,7 @@ export function importStudentsFromFile(file: File): Promise<{ success: boolean; 
               const sectionLetter = (sectionStr.replace(/[^A-E]/gi, "") || "A").trim().toUpperCase().slice(-1);
 
               imported.push({
-                id: formattedCedula || `std-${Date.now()}-${i}`,
+                id: formattedCedula !== "C.I. Pendiente" ? formattedCedula : `std-${Date.now()}-${i}-${Math.random()}`,
                 cedula: formattedCedula,
                 firstName: nombres.toUpperCase(),
                 lastName: apellidos.toUpperCase(),
