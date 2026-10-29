@@ -296,6 +296,17 @@ export async function fetchRegisteredStudentsFromDatabase(selectedYear?: string)
   const targetYearStr = typeof selectedYear === "string" ? selectedYear.trim() : "";
   const isFilteringYear = !!targetYearStr && targetYearStr !== "ALL";
 
+  const localStudents = getRegisteredStudents();
+  const hasQueriedThisSession = typeof window !== "undefined" && sessionStorage.getItem("ilumina_students_queried") === "true";
+
+  if (hasQueriedThisSession && localStudents.length > 0) {
+    if (isFilteringYear) {
+      const normTarget = normalizeYear(targetYearStr);
+      return localStudents.filter(s => normalizeYear(s.gradeYear) === normTarget);
+    }
+    return localStudents;
+  }
+
   let supaAlumnos: any[] = [];
   try {
     const res = await client
@@ -303,11 +314,13 @@ export async function fetchRegisteredStudentsFromDatabase(selectedYear?: string)
       .select("*")
       .order("nombres", { ascending: true });
     supaAlumnos = res.data || [];
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("ilumina_students_queried", "true");
+    }
   } catch (err) {
     console.warn("Supabase fetch exception:", err);
   }
 
-  const localStudents = getRegisteredStudents();
   const mappedSupa: RegisteredStudent[] = (supaAlumnos || []).map((row: any) => {
     const meta = extractStudentMetadata(row);
     return {
@@ -341,24 +354,33 @@ export async function fetchRegisteredStudentsFromDatabase(selectedYear?: string)
 export async function registerStudentInDatabase(student: Omit<RegisteredStudent, "createdAt">): Promise<boolean> {
   const client: any = getSupabaseClient();
   try {
+    const cleanCedula = (student.cedula && student.cedula !== "C.I. Pendiente" && !student.cedula.startsWith("std-") && student.cedula.length > 2) ? student.cedula : null;
     const payload = {
-      cedula: student.cedula,
+      cedula: cleanCedula,
       nombres: student.firstName,
       apellidos: student.lastName,
-      grado_ano: student.gradeYear,
+      email: `${(student.firstName || "alumno").toLowerCase().replace(/\s+/g, "")}@ilumina.edu`,
+      avatar_url: encodeStudentAvatar(student.avatarUrl || "", student.gradeYear, student.sectionLetter),
+      list_number: (student as any).listNumber || 1,
       ano: student.gradeYear,
-      seccion: student.sectionLetter,
-      avatar_url: encodeStudentAvatar(student.avatarUrl || "", student.gradeYear, student.sectionLetter)
+      seccion: student.sectionLetter
     };
-    const { error } = await client.from("alumnos").insert([payload]);
-    if (error) {
-      console.warn("Error inserting student in Supabase:", error);
+
+    let res;
+    if (cleanCedula) {
+      res = await client.from("alumnos").upsert([payload], { onConflict: "cedula" });
+    } else {
+      res = await client.from("alumnos").insert([payload]);
+    }
+
+    if (res.error) {
+      console.warn("Error registering student in Supabase:", res.error);
       return false;
     }
     setStudentMetadata(student.cedula, { gradeYear: student.gradeYear, sectionLetter: student.sectionLetter });
     return true;
   } catch (err) {
-    console.warn("Exception inserting student in Supabase:", err);
+    console.warn("Exception registering student in Supabase:", err);
     return false;
   }
 }
@@ -384,9 +406,10 @@ export async function updateStudentInDatabase(cedula: string, updates: Partial<R
     const payload: any = {};
     if (updates.firstName !== undefined) payload.nombres = updates.firstName;
     if (updates.lastName !== undefined) payload.apellidos = updates.lastName;
-    if (updates.cedula !== undefined) payload.cedula = updates.cedula;
+    if (updates.cedula !== undefined) {
+      payload.cedula = (updates.cedula && updates.cedula !== "C.I. Pendiente" && !updates.cedula.startsWith("std-")) ? updates.cedula : null;
+    }
     if (updates.gradeYear !== undefined) {
-      payload.grado_ano = updates.gradeYear;
       payload.ano = updates.gradeYear;
     }
     if (updates.sectionLetter !== undefined) {
@@ -397,13 +420,19 @@ export async function updateStudentInDatabase(cedula: string, updates: Partial<R
       const yr = updates.gradeYear || currentReg?.gradeYear || "1er Año";
       const sec = updates.sectionLetter || currentReg?.sectionLetter || "A";
       const av = updates.avatarUrl || currentReg?.avatarUrl || "";
-      payload.grado_ano = yr;
       payload.ano = yr;
       payload.seccion = sec;
       payload.avatar_url = encodeStudentAvatar(av, yr, sec);
       setStudentMetadata(updates.cedula || cedula, { gradeYear: yr, sectionLetter: sec });
     }
-    const { error } = await client.from("alumnos").update(payload).eq("cedula", cedula);
+    const targetCedula = (cedula && cedula !== "C.I. Pendiente" && !cedula.startsWith("std-")) ? cedula : null;
+    let query = client.from("alumnos").update(payload);
+    if (targetCedula) {
+      query = query.eq("cedula", targetCedula);
+    } else {
+      query = query.eq("nombres", updates.firstName || "").eq("apellidos", updates.lastName || "");
+    }
+    const { error } = await query;
     if (error) {
       console.warn("Error updating student in Supabase:", error);
       return false;
@@ -482,23 +511,54 @@ export function importStudentsFromFile(file: File): Promise<{ success: boolean; 
 
         // Save to Supabase database as well
         const client: any = getSupabaseClient();
+        let supaErrorMsg = "";
+        let supaSuccessCount = 0;
         if (client) {
           try {
-            for (const s of imported) {
+            for (let idx = 0; idx < imported.length; idx++) {
+              const s = imported[idx];
+              const cleanCedula = (s.cedula && s.cedula !== "C.I. Pendiente" && !s.cedula.startsWith("std-") && s.cedula.length > 2) ? s.cedula : null;
               const payload = {
-                cedula: s.cedula,
+                cedula: cleanCedula,
                 nombres: s.firstName,
                 apellidos: s.lastName,
-                grado_ano: s.gradeYear,
+                email: `${(s.firstName || "alumno").toLowerCase().replace(/\s+/g, "")}${idx}@ilumina.edu`,
+                avatar_url: encodeStudentAvatar(s.avatarUrl || "", s.gradeYear, s.sectionLetter),
+                list_number: idx + 1,
                 ano: s.gradeYear,
-                seccion: s.sectionLetter,
-                avatar_url: encodeStudentAvatar(s.avatarUrl || "", s.gradeYear, s.sectionLetter)
+                seccion: s.sectionLetter
               };
-              await client.from("alumnos").upsert([payload], { onConflict: "cedula" });
+              let res;
+              if (cleanCedula) {
+                res = await client.from("alumnos").upsert([payload], { onConflict: "cedula" });
+              } else {
+                res = await client.from("alumnos").insert([payload]);
+              }
+              if (res.error) {
+                const insRes = await client.from("alumnos").insert([payload]);
+                if (insRes.error) {
+                  supaErrorMsg = insRes.error.message;
+                  console.warn("Supabase insert error:", insRes.error);
+                } else {
+                  supaSuccessCount++;
+                }
+              } else {
+                supaSuccessCount++;
+              }
             }
-          } catch (dbErr) {
-            console.warn("Supabase bulk insert warning:", dbErr);
+          } catch (dbErr: any) {
+            supaErrorMsg = dbErr?.message || String(dbErr);
+            console.warn("Supabase bulk insert exception:", dbErr);
           }
+        }
+
+        if (supaErrorMsg) {
+          resolve({
+            success: true,
+            message: `Alumnos guardados localmente. (Error Supabase: ${supaErrorMsg}. Revisa políticas RLS o permisos de la tabla alumnos)`,
+            count: imported.length
+          });
+          return;
         }
 
         resolve({
