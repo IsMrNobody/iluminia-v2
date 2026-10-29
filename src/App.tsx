@@ -187,22 +187,28 @@ export default function App() {
         if (supaClasses && supaClasses.length > 0) {
           // Auto-fill students registered for this year and section if class has none
           const enriched = supaClasses.map(cls => {
-            if (!cls.students || cls.students.length === 0) {
-              const matching = getRegisteredStudentsForSection(cls.gradeYear, cls.sectionLetter);
-              if (matching.length > 0) {
-                // Auto-enroll in Supabase matriculas in background
-                try {
-                  const client: any = getSupabaseClient();
-                  matching.forEach((reg, i) => {
-                    client.from("matriculas").upsert({
-                      materia_id: cls.id,
-                      alumno_id: reg.id,
-                      numero_lista: i + 1,
-                      asistencia_porcentaje: 100,
-                    }, { onConflict: "materia_id,alumno_id" }).catch(() => {});
-                  });
-                } catch {}
+            const matching = getRegisteredStudentsForSection(cls.gradeYear, cls.sectionLetter);
+            if (matching.length > 0) {
+              // Auto-enroll in Supabase matriculas in background
+              try {
+                const client: any = getSupabaseClient();
+                matching.forEach((reg, i) => {
+                  client.from("matriculas").upsert({
+                    materia_id: cls.id,
+                    alumno_id: reg.id,
+                    numero_lista: i + 1,
+                    asistencia_porcentaje: 100,
+                  }, { onConflict: "materia_id,alumno_id" }).catch(() => {});
+                });
+              } catch {}
 
+              return {
+                ...cls,
+                students: convertRegisteredToClassStudents(matching),
+              };
+            }
+            if (!cls.students || cls.students.length === 0) {
+              if (matching.length > 0) {
                 return {
                   ...cls,
                   students: convertRegisteredToClassStudents(matching),
