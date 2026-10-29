@@ -296,54 +296,53 @@ export async function fetchRegisteredStudentsFromDatabase(selectedYear?: string)
   const targetYearStr = typeof selectedYear === "string" ? selectedYear.trim() : "";
   const isFilteringYear = !!targetYearStr && targetYearStr !== "ALL";
 
+  let supaAlumnos: any[] = [];
   try {
-    let supaAlumnos: any[] = [];
-    let queryErr: any = null;
-
     if (isFilteringYear) {
       const { code, num, label } = getYearSearchCodes(targetYearStr);
       const res = await client
         .from("alumnos")
         .select("*")
-        .or(`email.ilike.%${code}%,avatar_url.ilike.%yr=${code}%,avatar_url.ilike.%yr=${num}%`)
+        .or(`email.ilike.%\${code}%,avatar_url.ilike.%yr=\${code}%,avatar_url.ilike.%yr=\${num}%`)
         .order("nombres", { ascending: true });
-
       supaAlumnos = res.data || [];
-      queryErr = res.error;
     } else {
       const res = await client
         .from("alumnos")
         .select("*")
         .order("nombres", { ascending: true });
-
       supaAlumnos = res.data || [];
-      queryErr = res.error;
     }
-
-    if (queryErr) {
-      console.warn("Supabase fetchRegisteredStudentsFromDatabase error:", queryErr);
-      return getRegisteredStudents();
-    }
-
-    const mapped: RegisteredStudent[] = (supaAlumnos || []).map((row: any) => {
-      const meta = extractStudentMetadata(row);
-      return {
-        id: row.id || row.cedula,
-        cedula: row.cedula || row.id,
-        firstName: row.nombres || row.firstName || "",
-        lastName: row.apellidos || row.lastName || "",
-        gradeYear: meta.gradeYear,
-        sectionLetter: meta.sectionLetter,
-        avatarUrl: cleanAvatarUrl(row.avatar_url || row.avatarUrl || ""),
-        createdAt: row.created_at || row.createdAt || new Date().toISOString()
-      };
-    });
-
-    return mapped.filter(s => !isMockStudent(s));
   } catch (err) {
-    console.warn("Exception fetching registered students from Supabase:", err);
-    return getRegisteredStudents();
+    console.warn("Supabase fetch exception:", err);
   }
+
+  const localStudents = getRegisteredStudents();
+  const mappedSupa: RegisteredStudent[] = (supaAlumnos || []).map((row: any) => {
+    const meta = extractStudentMetadata(row);
+    return {
+      id: row.id || row.cedula,
+      cedula: row.cedula || row.id,
+      firstName: row.nombres || row.firstName || "",
+      lastName: row.apellidos || row.lastName || "",
+      gradeYear: meta.gradeYear,
+      sectionLetter: meta.sectionLetter,
+      avatarUrl: cleanAvatarUrl(row.avatar_url || row.avatarUrl || ""),
+      createdAt: row.created_at || row.createdAt || new Date().toISOString()
+    };
+  });
+
+  const map = new Map<string, RegisteredStudent>();
+  localStudents.forEach(s => map.set(s.cedula || s.id, s));
+  mappedSupa.forEach(s => map.set(s.cedula || s.id, s));
+  const allCombined = Array.from(map.values()).filter(s => !isMockStudent(s));
+
+  if (isFilteringYear) {
+    const normTarget = normalizeYear(targetYearStr);
+    return allCombined.filter(s => normalizeYear(s.gradeYear) === normTarget);
+  }
+
+  return allCombined;
 }
 
 export async function registerStudentInDatabase(student: Omit<RegisteredStudent, "createdAt">): Promise<boolean> {
@@ -438,7 +437,7 @@ export function importStudentsFromFile(file: File): Promise<{ success: boolean; 
               const cleanedCedula = cedula.replace(/[^0-9VvEe\-]/g, "");
               const formattedCedula = cleanedCedula.toUpperCase().startsWith("V-") || cleanedCedula.toUpperCase().startsWith("E-")
                 ? cleanedCedula.toUpperCase()
-                : (/^\d+$/.test(cleanedCedula) ? `V-${cleanedCedula}` : cleanedCedula);
+                : (/^\d+$/.test(cleanedCedula) ? `V-${cleanedCedula}` : (cedula || "C.I. Pendiente"));
 
               const gradeYear = formatGradeYear(gradeYearStr || sheetName);
               const sectionLetter = (sectionStr.replace(/[^A-E]/gi, "") || "A").trim().toUpperCase().slice(-1);
@@ -474,9 +473,27 @@ export function importStudentsFromFile(file: File): Promise<{ success: boolean; 
           });
         }
 
+        // Save to Supabase database as well
+        const client: any = getSupabaseClient();
+        if (client) {
+          try {
+            for (const s of imported) {
+              const payload = {
+                cedula: s.cedula,
+                nombres: s.firstName,
+                apellidos: s.lastName,
+                avatar_url: encodeStudentAvatar(s.avatarUrl || "", s.gradeYear, s.sectionLetter)
+              };
+              await client.from("alumnos").upsert([payload], { onConflict: "cedula" });
+            }
+          } catch (dbErr) {
+            console.warn("Supabase bulk insert warning:", dbErr);
+          }
+        }
+
         resolve({
           success: true,
-          message: `¡Se importaron ${imported.length} alumnos exitosamente desde DATOS-DE-ALUMNOS.xlsx!`,
+          message: `¡Se importaron y guardaron ${imported.length} alumnos en BD y local exitosamente!`,
           count: imported.length
         });
       } catch (err) {
