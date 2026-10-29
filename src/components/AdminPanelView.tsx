@@ -164,7 +164,8 @@ export default function AdminPanelView({
       showToast(res.message);
       setIsBulkUploadOpen(false);
       setBulkFile(null);
-      await loadStudents(studentYearFilter);
+      setStudentYearFilter("2do Año");
+      await loadStudents("2do Año");
     } else {
       showToast(res.message);
     }
