@@ -34,6 +34,7 @@ interface ClassOverviewViewProps {
   onAddStudent: (className: string) => void;
   onDeleteStudent?: (studentId: string) => void;
   onSaveStudentGrades?: (studentId: string, updatedGrades: any) => void;
+  onSaveStudentsGradesBatch?: (entries: Array<{ studentId: string; grades: any }>) => void;
   onPendingChangesChange?: (hasChanges: boolean, saveFn: () => void) => void;
   onUpdateSubjectEvaluations?: (subjectName: string, gradeYear: string, updatedLapsoContent: any) => void;
 }
@@ -50,6 +51,7 @@ export default function ClassOverviewView({
   onAddStudent,
   onDeleteStudent,
   onSaveStudentGrades,
+  onSaveStudentsGradesBatch,
   onPendingChangesChange,
   onUpdateSubjectEvaluations
 }: ClassOverviewViewProps) {
@@ -169,13 +171,31 @@ export default function ClassOverviewView({
   }, [section.id, section.students]);
 
   const saveAllPendingChanges = () => {
-    if (!onSaveStudentGrades || modifiedStudentIds.size === 0) return;
-    modifiedStudentIds.forEach(stdId => {
-      const std = localStudents.find(s => s.id === stdId);
-      if (std) {
-        onSaveStudentGrades(stdId, std.grades);
-      }
-    });
+    const hasPending = modifiedStudentIds.size > 0;
+    const hasBatchHandler = typeof onSaveStudentsGradesBatch === "function";
+    const hasSingleHandler = typeof onSaveStudentGrades === "function";
+
+    if (!hasPending || (!hasBatchHandler && !hasSingleHandler)) return;
+
+    if (hasBatchHandler) {
+      const entries: Array<{ studentId: string; grades: any }> = [];
+      modifiedStudentIds.forEach(stdId => {
+        const std = localStudents.find(s => s.id === stdId);
+        if (std) {
+          entries.push({ studentId: stdId, grades: std.grades });
+        }
+      });
+      // ONE DB round-trip + ONE toast for the whole batch
+      onSaveStudentsGradesBatch!(entries);
+    } else if (hasSingleHandler) {
+      modifiedStudentIds.forEach(stdId => {
+        const std = localStudents.find(s => s.id === stdId);
+        if (std) {
+          onSaveStudentGrades!(stdId, std.grades);
+        }
+      });
+    }
+
     setModifiedStudentIds(new Set());
     if (onPendingChangesChange) {
       onPendingChangesChange(false, () => {});

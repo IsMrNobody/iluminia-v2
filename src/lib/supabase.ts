@@ -1630,17 +1630,25 @@ export async function saveGradesToSupabase(
       { key: "personalCare", item: ethical.personalCare },
     ];
 
+    // NOTE: en esta tabla pueden existir filas DUPLICADAS para la misma
+    // combinación (materia, lapso, clave_item). Actualizamos por filtros
+    // (no por id) para que TODAS las copias queden consistentes y nunca
+    // reaparezca un nombre o ponderación antiguo al navegar.
     for (const c of criteriaUpdates) {
-      const evalId = evalMap[c.key];
-      if (evalId && c.item && c.item.name) {
-        await client
+      if (c.item && c.item.name) {
+        const { error: evalUpdErr } = await client
           .from("evaluaciones")
           .update({
             titulo: c.item.name,
             ponderacion_porcentaje: c.item.weight,
             descripcion: c.item.description || null,
           })
-          .eq("id", evalId);
+          .eq("materia_id", materiaId)
+          .eq("lapso", lapso)
+          .eq("clave_item", c.key);
+        if (evalUpdErr) {
+          console.warn("Could not update evaluation metadata:", evalUpdErr);
+        }
       }
     }
 

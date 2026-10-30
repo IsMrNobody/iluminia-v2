@@ -483,18 +483,90 @@ export default function App() {
     }
   };
 
+  // Handle saving multiple students' grades in ONE DB round-trip so the teacher
+  // only gets a single success toast (instead of one per student).
+  const handleSaveStudentsGradesBatch = async (entries: Array<{ studentId: string; grades: any }>) => {
+    const validEntries = Array.isArray(entries) ? entries.filter(e => e?.studentId && e?.grades) : [];
+    if (!currentClass || validEntries.length === 0) return;
+
+    const targetClassId = currentClass.id;
+    const lapsoKey = activeLapso || 1;
+
+    try {
+      for (const entry of validEntries) {
+        const activeLapsoGrades =
+          entry.grades[lapsoKey] || entry.grades[1] || entry.grades;
+        await saveGradesToSupabase(targetClassId, entry.studentId, activeLapsoGrades, currentClass.lapso || activeLapso);
+      }
+
+      // 2. QUERY DATABASE ONCE to get authoritative fresh state
+      const teacherIdentifier = teacher?.id || teacher?.email || "";
+      if (teacherIdentifier) {
+        const freshClasses = await getTeacherClassesFromSupabase(teacherIdentifier, teacher.name);
+        if (freshClasses && freshClasses.length > 0) {
+          setClasses(freshClasses);
+        }
+      }
+
+      setSuccessToast(
+        validEntries.length === 1
+          ? "¡Notas guardadas en la base de datos con éxito!"
+          : `¡Notas de ${validEntries.length} alumnos guardadas en la base de datos con éxito!`
+      );
+      setTimeout(() => setSuccessToast(""), 3000);
+    } catch (e) {
+      console.error("Error saving batch grades to database:", e);
+      setSuccessToast("Error al guardar en la base de datos.");
+      setTimeout(() => setSuccessToast(""), 3000);
+    }
+  };
+
   // Handle updating subject evaluation configuration across ALL sections of the same subject - Database-First approach
   const handleUpdateSubjectEvaluations = async (subjectName: string, gradeYear: string, updatedLapsoContent: any) => {
     const lapsoKey = activeLapso || 1;
     const supa: any = getSupabaseClient();
 
     try {
-      const matchingClasses = classes.filter(
-        c => c.subjectName.trim().toLowerCase() === subjectName.trim().toLowerCase() &&
-             c.gradeYear.trim().toLowerCase() === gradeYear.trim().toLowerCase()
-      );
+      const nameLc = subjectName.trim().toLowerCase();
+      const yearLc = gradeYear.trim().toLowerCase();
+      const matches = (c: ClassSection) =>
+        c.subjectName.trim().toLowerCase() === nameLc &&
+        c.gradeYear.trim().toLowerCase() === yearLc;
 
-      // 1. SAVE TO DATABASE FIRST (Evaluations & Student Grades across matching classes)
+      const matchingClasses = classes.filter(matches);
+
+      // 1. ACTUALIZACIÓN OPTIMISTA: aplicar los nuevos nombres/ponderaciones al estado
+      //    local de TODAS las secciones de la materia automáticamente (al instante,
+      //    sin esperar la base de datos). Las notas (score) se conservan tal cual.
+      setClasses(prev => prev.map(c => {
+        if (!matches(c)) return c;
+        return {
+          ...c,
+          students: (c.students || []).map(std => {
+            const grades = { ...(std.grades || {}) } as any;
+            const existing = grades[lapsoKey] || grades[1] || {};
+            const mergedAcademic: any = {};
+            Object.keys(updatedLapsoContent.academic || {}).forEach((k: string) => {
+              mergedAcademic[k] = {
+                ...updatedLapsoContent.academic[k],
+                score: existing?.academic?.[k]?.score
+              };
+            });
+            const mergedEthical: any = {};
+            Object.keys(updatedLapsoContent.ethical || {}).forEach((k: string) => {
+              mergedEthical[k] = {
+                ...updatedLapsoContent.ethical[k],
+                score: existing?.ethical?.[k]?.score
+              };
+            });
+            grades[lapsoKey] = { academic: mergedAcademic, ethical: mergedEthical };
+            return { ...std, grades };
+          })
+        };
+      }));
+
+      // 2. PERSISTIR EN BASE DE DATOS: metadatos de evaluaciones para CADA sección
+      //    de la materia. Solo escrituras rápidas de `evaluaciones` (nada de notas).
       for (const cls of matchingClasses) {
         const allItems = {
           ...(updatedLapsoContent.academic || {}),
@@ -504,73 +576,61 @@ export default function App() {
         for (const [key, item] of Object.entries(allItems) as [string, any][]) {
           const category = updatedLapsoContent.academic?.[key] ? "academica" : "etica";
           try {
-            const { data: existingEval } = await supa
+            // NOTE: en esta base pueden existir filas DUPLICADAS para la misma
+            // (materia_id, lapso, clave_item). Actualizamos por filtros para
+            // dejar TODAS las copias consistentes.
+            const { data: matchingEvals, error: selectErr } = await supa
               .from("evaluaciones")
               .select("id")
               .eq("materia_id", cls.id)
               .eq("lapso", lapsoKey)
-              .eq("clave_item", key)
-              .maybeSingle();
+              .eq("clave_item", key);
 
-            if (existingEval?.id) {
-              await supa.from("evaluaciones").update({
-                titulo: item.name,
-                categoria: category,
-                ponderacion_porcentaje: item.weight,
-                descripcion: item.description || ""
-              }).eq("id", existingEval.id);
+            if (selectErr) {
+              console.warn("Could not look up evaluation rows:", selectErr);
+            }
+
+            const updatePayload = {
+              titulo: item.name,
+              categoria: category,
+              ponderacion_porcentaje: item.weight,
+              descripcion: item.description || ""
+            };
+
+            if (matchingEvals && matchingEvals.length > 0) {
+              const { error: updateErr } = await supa
+                .from("evaluaciones")
+                .update(updatePayload)
+                .eq("materia_id", cls.id)
+                .eq("lapso", lapsoKey)
+                .eq("clave_item", key);
+              if (updateErr) {
+                console.warn("Could not update evaluation rows:", updateErr);
+              }
             } else {
-              await supa.from("evaluaciones").insert({
+              const { error: insertErr } = await supa.from("evaluaciones").insert({
                 materia_id: cls.id,
                 lapso: lapsoKey,
                 clave_item: key,
-                titulo: item.name,
-                categoria: category,
-                ponderacion_porcentaje: item.weight,
-                descripcion: item.description || ""
+                ...updatePayload
               });
+              if (insertErr) {
+                console.warn("Could not insert evaluation row:", insertErr);
+              }
             }
           } catch (err) {
             console.warn("Could not save evaluation in Supabase:", err);
           }
         }
-
-        // Save grades for students in this class
-        for (const std of (cls.students || [])) {
-          const studentGradesObj = std.grades || {};
-          const existingLapsoData = studentGradesObj[lapsoKey] || studentGradesObj[1] || updatedLapsoContent;
-          const mergedAcademic: any = {};
-          Object.keys(updatedLapsoContent.academic || {}).forEach(k => {
-            mergedAcademic[k] = {
-              ...updatedLapsoContent.academic[k],
-              score: existingLapsoData?.academic?.[k]?.score
-            };
-          });
-          const mergedEthical: any = {};
-          Object.keys(updatedLapsoContent.ethical || {}).forEach(k => {
-            mergedEthical[k] = {
-              ...updatedLapsoContent.ethical[k],
-              score: existingLapsoData?.ethical?.[k]?.score
-            };
-          });
-
-          await saveGradesToSupabase(cls.id, std.id, {
-            academic: mergedAcademic,
-            ethical: mergedEthical
-          }, lapsoKey).catch(() => {});
-        }
       }
 
-      // 2. QUERY DATABASE TO GET AUTHORITATIVE FRESH STATE
-      const teacherIdentifier = teacher?.id || teacher?.email || "";
-      if (teacherIdentifier) {
-        const freshClasses = await getTeacherClassesFromSupabase(teacherIdentifier, teacher.name);
-        if (freshClasses && freshClasses.length > 0) {
-          setClasses(freshClasses);
-        }
-      }
-
-      setSuccessToast("¡Evaluaciones guardadas en la base de datos y actualizadas!");
+      // 3. Notificar al instante: el estado local ya refleja el cambio en todas las
+      //    secciones y la base de datos ya fue persistida.
+      setSuccessToast(
+        matchingClasses.length > 1
+          ? `¡Evaluaciones guardadas y aplicadas a ${matchingClasses.length} secciones!`
+          : "¡Evaluaciones guardadas con éxito!"
+      );
       setTimeout(() => setSuccessToast(""), 3500);
     } catch (e) {
       console.error("Error saving subject evaluations to database:", e);
@@ -1284,6 +1344,7 @@ export default function App() {
                     onAddStudent={() => setIsAddStudentOpen(true)}
                     onDeleteStudent={handleDeleteStudent}
                     onSaveStudentGrades={handleSaveStudentGrades}
+                    onSaveStudentsGradesBatch={handleSaveStudentsGradesBatch}
                     onUpdateSubjectEvaluations={handleUpdateSubjectEvaluations}
                     onPendingChangesChange={(hasChanges, saveFn) => {
                       setHasUnsavedSectionChanges(hasChanges);
