@@ -14,14 +14,12 @@ import {
   Search,
   ArrowLeft,
   Plus,
-  Trash2,
   Edit3,
   Edit2,
   Users,
   BookOpen,
   Check,
-  ChevronRight,
-  Download
+  ChevronRight
 } from "lucide-react";
 
 interface ClassOverviewViewProps {
@@ -57,113 +55,13 @@ export default function ClassOverviewView({
 }: ClassOverviewViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<FilterType>("TODOS");
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // Local student grades state for buffering changes without immediate DB saves on every slider move
   const [localStudents, setLocalStudents] = useState<Student[]>(() => [...(section.students || [])]);
   const [modifiedStudentIds, setModifiedStudentIds] = useState<Set<string>>(new Set());
 
-  // Handle Excel download using template with ExcelJS to preserve 100% styles and asistencia sheets
-  const handleDownloadExcel = async () => {
-    try {
-      const response = await fetch('/csv/HOJAS DE ACTUACIÓN -ASISTENCIA 2026-27.xlsx');
-      if (!response.ok) {
-        throw new Error('No se pudo cargar la plantilla Excel');
-      }
-      const arrayBuffer = await response.arrayBuffer();
-      const ExcelJS = await import('exceljs');
-      const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.load(arrayBuffer);
-
-      const sheetNameUpper = `AVANCE ${section.sectionLetter.toUpperCase()}`;
-      const sheetNameTitle = `Avance ${section.sectionLetter.toUpperCase()}`;
-      const ws = workbook.worksheets.find(w => w.name.toUpperCase() === sheetNameUpper || w.name.toUpperCase() === sheetNameTitle.toUpperCase()) || workbook.worksheets[0];
-
-      if (!ws) {
-        alert(`No se encontró la hoja correspondiente a la sección ${section.sectionLetter}`);
-        return;
-      }
-
-      // 1. Set B6: Subject name & grade year
-      ws.getCell('B6').value = `${section.subjectName} · ${section.gradeYear}`;
-
-      // 2. Set B9: Teacher name
-      ws.getCell('B9').value = teacherName ? `Prof. ${teacherName}` : "Prof. Titular";
-
-      // 3. Set Evaluation Names in row 4 (C4, E4, G4, I4, K4)
-      ws.getCell('C4').value = lapsoData.academic.homework?.name || 'Evaluación 1';
-      ws.getCell('E4').value = lapsoData.academic.talentShow?.name || 'Evaluación 2';
-      ws.getCell('G4').value = lapsoData.academic.assembly?.name || 'Evaluación 3';
-      ws.getCell('I4').value = lapsoData.academic.essay?.name || 'Evaluación 4';
-      ws.getCell('K4').value = lapsoData.academic.performance?.name || 'Evaluación 5';
-
-      // 4. Set percentages in row 11 (D11, F11, H11, J11, L11)
-      const academicEvals = [
-        lapsoData.academic.homework,
-        lapsoData.academic.talentShow,
-        lapsoData.academic.assembly,
-        lapsoData.academic.essay,
-        lapsoData.academic.performance
-      ];
-
-      const weightCells = ['D11', 'F11', 'H11', 'J11', 'L11'];
-      academicEvals.forEach((ev, idx) => {
-        if (idx < weightCells.length && ev) {
-          ws.getCell(weightCells[idx]).value = ev.weight;
-        }
-      });
-
-      // 5. Use students in original registration order
-      const sortedStudents = [...localStudents];
-
-      // 6. Fill student names, academic scores, and ethical grades starting at row 12
-      sortedStudents.forEach((std, idx) => {
-        const rowNum = 12 + idx;
-        const fullName = `${std.firstName} ${std.lastName}`.toUpperCase();
-
-        ws.getCell(`B${rowNum}`).value = fullName;
-
-        const stdLapso = std.grades?.[activeLapsoNum] || std.grades?.[1] || lapsoData;
-        const scores = [
-          stdLapso.academic?.homework?.score,
-          stdLapso.academic?.talentShow?.score,
-          stdLapso.academic?.assembly?.score,
-          stdLapso.academic?.essay?.score,
-          stdLapso.academic?.performance?.score
-        ];
-
-        const scoreCols = ['C', 'E', 'G', 'I', 'K'];
-        scores.forEach((sc, sIdx) => {
-          if (sIdx < scoreCols.length && sc !== undefined && sc !== null && sc !== '') {
-            ws.getCell(`${scoreCols[sIdx]}${rowNum}`).value = Number(sc);
-          }
-        });
-
-        // Ethical scores (Q for Responsabilidad, R for Ajuste Social)
-        const respScore = stdLapso.ethical?.responsibility?.score;
-        if (respScore !== undefined && respScore !== null && respScore !== '') {
-          ws.getCell(`Q${rowNum}`).value = Number(respScore);
-        }
-
-        const pcScore = stdLapso.ethical?.personalCare?.score;
-        if (pcScore !== undefined && pcScore !== null && pcScore !== '') {
-          ws.getCell(`R${rowNum}`).value = Number(pcScore);
-        }
-      });
-
-      const buffer = await workbook.xlsx.writeBuffer();
-      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = 'HOJAS DE ACTUACIÓN -ASISTENCIA 2026-27.xlsx';
-      anchor.click();
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Error downloading excel:', err);
-      alert('Hubo un error al rellenar el archivo Excel. Por favor intenta de nuevo.');
-    }
-  };
+  // La descarga de la Hoja de Actuación vive en el navbar (App.tsx)
+  // y se ejecuta con downloadHojaActuacion() de src/lib/hojaActuacion.ts.
 
   useEffect(() => {
     setLocalStudents([...(section.students || [])]);
@@ -439,16 +337,6 @@ export default function ClassOverviewView({
           >
             <BookOpen className={`w-4 h-4 ${activeViewMode === "evaluations" ? "text-white" : "text-[#D97706]"}`} />
             <span>{activeViewMode === "students" ? "Evaluaciones" : "Alumnos"}</span>
-          </button>
-
-          {/* Download Excel Template Button */}
-          <button
-            onClick={handleDownloadExcel}
-            className="btn s flex items-center gap-2"
-            title="Descargar hoja de actuación y notas en plantilla Excel"
-          >
-            <Download className="w-4 h-4 text-[#D97706]" />
-            <span>Descargar Hoja</span>
           </button>
 
           {section.isDefault === false && (
@@ -826,26 +714,6 @@ export default function ClassOverviewView({
                         <Edit3 className="w-4 h-4 text-[#D97706]" />
                         <span>Calificar alumno</span>
                       </button>
-
-                      {onDeleteStudent && (
-                        confirmDeleteId === std.id ? (
-                          <button
-                            onClick={() => { onDeleteStudent(std.id); setConfirmDeleteId(null); }}
-                            className="btn danger px-3 shrink-0"
-                            title="Confirmar eliminar estudiante"
-                          >
-                            ¿Quitar?
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => setConfirmDeleteId(std.id)}
-                            className="btn s px-3 shrink-0 text-[#B91C1C] hover:bg-red-50"
-                            title="Quitar estudiante de la sección"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )
-                      )}
                     </div>
                   </div>
                 );

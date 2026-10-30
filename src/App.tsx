@@ -51,9 +51,11 @@ import {
   LogOut,
   BookOpen,
   ShieldCheck,
-  Search
+  Search,
+  Download
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { downloadHojaActuacion } from "./lib/hojaActuacion";
 
 export function calculateProgressPercent(start: string, end: string, current: string): number {
   const startTime = new Date(start + "T00:00:00").getTime();
@@ -1197,6 +1199,21 @@ export default function App() {
 
         {/* Right Info Cluster (Desktop only, without profile icon in navbar) */}
         <div className="hidden sm:flex ri ml-auto items-center">
+          {/* Descargar Hoja de Actuación: solo visible dentro de una sección */}
+          {currentClass && (
+            <button
+              onClick={() => downloadHojaActuacion({
+                section: currentClass,
+                students: currentClass.students || [],
+                teacherName: teacher.name
+              })}
+              className="tab hidden sm:flex"
+              aria-label="Descargar hoja de actuación"
+              title="Descargar hoja de actuación y notas en plantilla Excel"
+            >
+              <Download className="w-4.5 h-4.5" />
+            </button>
+          )}
           <span
             className="tx font-bold cursor-pointer hover:underline text-[#F6E7C8]"
             onClick={() => { setActiveTab("profile"); setSelectedStudentId(null); }}

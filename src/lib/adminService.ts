@@ -7,11 +7,15 @@ const STUDENTS_METADATA_KEY = "ilumina_students_metadata";
 const TEACHERS_KEY = "ilumina_teachers_list";
 
 export function getStudentRealCedula(std: { id?: string; cedula?: string; firstName?: string; lastName?: string }): string {
-  if (std?.cedula && !std.cedula.startsWith("std-") && !std.cedula.startsWith("reg-std-") && !std.cedula.includes("class-")) {
-    return std.cedula;
+  // Cédula real tal cual está en la base (formato V-xxxxxxxx / E-xxxxxxxx o solo dígitos)
+  const c = std?.cedula ? String(std.cedula).trim() : "";
+  if (c && !c.startsWith("std-") && !c.startsWith("reg-std-") && !c.includes("class-")) {
+    return c;
   }
-  if (std?.id && !std.id.startsWith("std-") && !std.id.startsWith("reg-std-") && !std.id.startsWith("class-")) {
-    return std.id;
+  // Fallback: el `id` solo si es una cédula real (nunca un UUID: eso parecía un "hash")
+  const possibleId = std?.id ? String(std.id).trim() : "";
+  if (possibleId && /^(V|E)[-]?\d+$/i.test(possibleId)) {
+    return possibleId;
   }
   return "";
 }

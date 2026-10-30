@@ -1426,6 +1426,7 @@ export async function getStudentsForClassFromSupabase(materiaId: string): Promis
         id: stdId,
         firstName: a.nombres || "Alumno",
         lastName: a.apellidos || "",
+        cedula: a.cedula || "",
         avatarUrl: a.avatar_url,
         grades,
         attendanceRate: enr.asistencia_porcentaje !== null ? Number(enr.asistencia_porcentaje) : 100,
