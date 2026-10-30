@@ -32,6 +32,7 @@ import {
 } from "./lib/supabase";
 import {
   IluminaLogo,
+  IluminaOwl,
   BrujulaLogoAnimated,
   PolaroidAvatar,
   SpriteObject
@@ -142,11 +143,13 @@ export default function App() {
 
   // Classes state (loaded exclusively from Supabase, no localStorage caching)
   const [classes, setClasses] = useState<ClassSection[]>([]);
+  const [isLoadingClasses, setIsLoadingClasses] = useState(false);
 
   // Automatically fetch teacher's real subjects from Supabase whenever teacher changes
   useEffect(() => {
     if (!teacher) {
       setClasses([]);
+      setIsLoadingClasses(false);
       return;
     }
 
@@ -154,6 +157,7 @@ export default function App() {
     if (!teacherIdentifier) return;
 
     let isMounted = true;
+    setIsLoadingClasses(true);
 
     // Purge any legacy class cache from localStorage to prevent stale/bloated data issues
     try {
@@ -178,7 +182,10 @@ export default function App() {
       })
       .catch((err) => {
         console.warn("Could not fetch classes from Supabase:", err);
-        setClasses([]);
+        if (isMounted) setClasses([]);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingClasses(false);
       });
 
     return () => {
@@ -1248,8 +1255,25 @@ export default function App() {
 
       {/* Main Parchment Sheet Container */}
       <main ref={mainContentRef} className="wrap">
-          {selectedStudentId && currentStudent && currentClass ? (
-            <GradingView
+        {isLoadingClasses ? (
+          <div className="flex flex-col items-center justify-center py-20 space-y-6">
+            <IluminaOwl pose="curiosa" animated={true} width={100} height={110} />
+            <div className="text-center">
+              <h3 className="font-display text-xl text-[#2B2623] animate-pulse">
+                Consultando la bitácora...
+              </h3>
+              <p className="text-xs text-[#6E655F] mt-2 font-medium">
+                Trayendo datos de tus alumnos desde la base de datos
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <div className="w-2 h-2 rounded-full bg-[#D97706] animate-bounce [animation-delay:-0.3s]"></div>
+              <div className="w-2 h-2 rounded-full bg-[#D97706] animate-bounce [animation-delay:-0.15s]"></div>
+              <div className="w-2 h-2 rounded-full bg-[#D97706] animate-bounce"></div>
+            </div>
+          </div>
+        ) : selectedStudentId && currentStudent && currentClass ? (
+          <GradingView
               key={`${currentClass.id}-${currentStudent.id}-${activeLapso}`}
               student={currentStudent}
               className={`${currentClass.gradeYear} • ${currentClass.subjectName}`}

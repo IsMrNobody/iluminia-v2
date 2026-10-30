@@ -300,108 +300,132 @@ export default function ClassOverviewView({
 
   return (
     <div className="space-y-6">
-      {/* Back chip */}
-      <button
-        onClick={handleSafeBack}
-        className="chip group"
-        title="Volver a la lista de materias"
-      >
-        <ArrowLeft className="w-4 h-4 text-[#D97706] group-hover:-translate-x-1 transition-transform" />
-        <span>Clases</span>
-      </button>
+      {!(activeViewMode === "evaluations" && selectedEvaluationKey) && (
+        <>
+          {/* Back chip */}
+          <button
+            onClick={handleSafeBack}
+            className="chip group"
+            title="Volver a la lista de materias"
+          >
+            <ArrowLeft className="w-4 h-4 text-[#D97706] group-hover:-translate-x-1 transition-transform" />
+            <span>Clases</span>
+          </button>
 
-      {/* Top Heading Row with Evaluations / Students Toggle & Add Students */}
-      <div className="row justify-between items-start gap-4">
-        <div>
-          <span className="bg adm mb-2">
-            {section.department || "Materia Principal"}
-          </span>
-          <h1 className="font-display text-2xl sm:text-3xl text-[#2B2623]">
-            {section.subjectName} · {section.gradeYear}
-          </h1>
-          <p className="sub">
-            Sección {section.sectionLetter} · {localStudents.length} estudiantes en nómina • Lapso {activeLapsoNum}
-          </p>
-        </div>
+          {/* Top Heading Row with Evaluations / Students Toggle & Add Students */}
+          <div className="row justify-between items-start gap-4">
+            <div>
+              <span className="bg adm mb-2">
+                {section.department || "Materia Principal"}
+              </span>
+              <h1 className="font-display text-2xl sm:text-3xl text-[#2B2623]">
+                {section.subjectName} · {section.gradeYear}
+              </h1>
+              <p className="sub">
+                Sección {section.sectionLetter} · {localStudents.length} estudiantes en nómina • Lapso {activeLapsoNum}
+              </p>
+            </div>
 
-        <div className="flex items-center gap-2.5 flex-wrap">
+            <div className="flex items-center gap-2.5 flex-wrap">
 
-          {/* Button with open book icon */}
+              {section.isDefault === false && (
+                <button
+                  onClick={() => onAddStudent(`${section.gradeYear} • ${section.subjectName}`)}
+                  className="btn full-m"
+                >
+                  <Plus className="w-5 h-5 text-[#2B2623]" />
+                  <span>Agregar alumnos</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Section Switcher Chips */}
+          {siblingSectionsSorted.length > 1 && (
+            <div className="row gap-2 my-2">
+              {siblingSectionsSorted.map((sib) => {
+                const isCurrent = sib.id === section.id;
+                return (
+                  <button
+                    key={sib.id}
+                    onClick={() => handleSafeSwitchSection(sib.id)}
+                    className={`chip ${isCurrent ? "am" : ""}`}
+                  >
+                    <span>{sib.sectionLetter}</span>
+                    <span className="ct">
+                      {sib.students?.length || 0}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* CONDITIONAL VIEWS: Students vs Evaluations vs Batch Grading */}
+      <div style={{ position: "relative" }}>
+        {/* Toggle Modo: Evaluaciones / Alumnos — oculto cuando se está dentro de una evaluación */}
+        {!(activeViewMode === "evaluations" && selectedEvaluationKey) && (
+        <div
+          className="fixed md:static right-6 bottom-40 md:top-[100px] z-50 flex flex-col items-center gap-1"
+        >
           <button
             onClick={() => {
               setActiveViewMode(activeViewMode === "students" ? "evaluations" : "students");
               setSelectedEvaluationKey(null);
             }}
-            className={`btn s flex items-center gap-2 ${activeViewMode === "evaluations" ? "!bg-[#D97706] text-white !border-[#B45309]" : ""}`}
-            title={activeViewMode === "students" ? "Ver evaluaciones de la materia" : "Ver lista de alumnos"}
+            className={`w-14 h-14 rounded-full border-2 border-[#7A4B2A] shadow-[0_4px_0_#7A4B2A] flex items-center justify-center transition-all cursor-pointer hover:translate-y-[-2px] active:translate-y-[2px] ${
+              activeViewMode === "evaluations"
+                ? "bg-gradient-to-br from-[#E0E7FF] to-[#C7D2FE] shadow-[0_4px_0_#4338CA] hover:shadow-[0_6px_0_#4338CA] active:shadow-[0_2px_0_#4338CA] border-[#4338CA] text-[#312E81]"
+                : "bg-gradient-to-br from-[#F4DFA6] to-[#E3B866] shadow-[0_4px_0_#7A4B2A] hover:shadow-[0_6px_0_#7A4B2A] active:shadow-[0_2px_0_#7A4B2A] border-[#7A4B2A] text-[#3E2514]"
+            }`}
+            title={activeViewMode === "evaluations" ? "Estás en modo Evaluaciones — clic para ver Alumnos" : "Estás en modo Alumnos — clic para ver Evaluaciones"}
+            aria-pressed={activeViewMode === "evaluations"}
           >
-            <BookOpen className={`w-4 h-4 ${activeViewMode === "evaluations" ? "text-white" : "text-[#D97706]"}`} />
-            <span>{activeViewMode === "students" ? "Evaluaciones" : "Alumnos"}</span>
+            {activeViewMode === "evaluations" ? (
+              <SpriteObject name="birrete" size={32} />
+            ) : (
+              <SpriteObject name="libroabierto" size={32} />
+            )}
           </button>
-
-          {section.isDefault === false && (
-            <button
-              onClick={() => onAddStudent(`${section.gradeYear} • ${section.subjectName}`)}
-              className="btn full-m"
-            >
-              <Plus className="w-5 h-5 text-[#2B2623]" />
-              <span>Agregar alumnos</span>
-            </button>
-          )}
         </div>
-      </div>
+        )}
 
-      {/* Section Switcher Chips */}
-      {siblingSectionsSorted.length > 1 && (
-        <div className="row gap-2 my-2">
-          {siblingSectionsSorted.map((sib) => {
-            const isCurrent = sib.id === section.id;
-            return (
-              <button
-                key={sib.id}
-                onClick={() => handleSafeSwitchSection(sib.id)}
-                className={`chip ${isCurrent ? "am" : ""}`}
-              >
-                <span>{sib.sectionLetter}</span>
-                <span className="ct">
-                  {sib.students?.length || 0}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* CONDITIONAL VIEWS: Students vs Evaluations vs Batch Grading */}
-      {activeViewMode === "evaluations" ? (
+        {activeViewMode === "evaluations" ? (
         selectedEvaluationKey && selectedEvaluationItem ? (
           /* BATCH GRADING VIEW FOR SELECTED EVALUATION */
           <div className="space-y-4">
-            <div className="flex items-center justify-between bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
-              <div className="flex items-center gap-3">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+              <div className="flex items-center justify-between">
                 <button
                   onClick={() => setSelectedEvaluationKey(null)}
-                  className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition cursor-pointer"
+                  className="chip group"
                   title="Volver a lista de evaluaciones"
                 >
-                  <ArrowLeft className="w-4 h-4" />
+                  <ArrowLeft className="w-4 h-4 text-[#D97706] group-hover:-translate-x-1 transition-transform" />
+                  <span>Evaluaciones</span>
                 </button>
-                <div>
-                  <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wider block">
-                    Evaluación {selectedEvaluationItem.category} • Ponderación: {selectedEvaluationItem.weight}%
-                  </span>
-                  <h2 className="text-xl font-extrabold text-slate-900">
-                    {selectedEvaluationItem.name}
-                  </h2>
-                  <p className="text-xs text-slate-500">
-                    Modifica la nota (0 a 20) para cada alumno de la Sección {section.sectionLetter}
-                  </p>
-                </div>
+
+                <span className="text-xs font-bold font-mono bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-xl">
+                  {localStudents.length} Estudiantes
+                </span>
               </div>
 
-              <span className="text-xs font-bold font-mono bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-xl">
-                {localStudents.length} Estudiantes
-              </span>
+              <div className="border-t border-slate-100 pt-3">
+                <span className="bg adm mb-1.5 inline-block">
+                  {section.subjectName} · {section.gradeYear} • Sección {section.sectionLetter}
+                </span>
+                <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wider block mt-1">
+                  Evaluación {selectedEvaluationItem.category} • Ponderación: {selectedEvaluationItem.weight}% • Lapso {activeLapsoNum}
+                </span>
+                <h2 className="text-xl font-extrabold text-slate-900 mt-0.5">
+                  {selectedEvaluationItem.name}
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Modifica la nota (0 a 20) para cada alumno de la sección.
+                </p>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -760,6 +784,7 @@ export default function ClassOverviewView({
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }
