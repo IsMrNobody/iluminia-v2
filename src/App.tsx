@@ -1152,8 +1152,7 @@ export default function App() {
               onClick={(e) => {
                 e.stopPropagation();
                 downloadHojaActuacion({
-                  section: currentClass,
-                  students: currentClass.students || [],
+                  sections: siblingSections,
                   teacherName: teacher.name
                 });
               }}
@@ -1220,11 +1219,17 @@ export default function App() {
           {/* Descargar Hoja de Actuación: solo visible dentro de una sección */}
           {currentClass && (
             <button
-              onClick={() => downloadHojaActuacion({
-                section: currentClass,
-                students: currentClass.students || [],
-                teacherName: teacher.name
-              })}
+              onClick={() => {
+                const { subjectName, gradeYear } = currentClass;
+                const siblingSections = classes.filter(
+                  c => c.subjectName.trim().toLowerCase() === subjectName.trim().toLowerCase()
+                    && c.gradeYear.trim().toLowerCase() === gradeYear.trim().toLowerCase()
+                );
+                downloadHojaActuacion({
+                  sections: siblingSections,
+                  teacherName: teacher.name
+                });
+              }}
               className="flex items-center justify-center mr-1"
               aria-label="Descargar hoja de actuación"
               title="Descargar hoja de actuación y notas en plantilla Excel"
