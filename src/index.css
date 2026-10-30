@@ -630,11 +630,7 @@ textarea:focus-visible {
     border-bottom-width: 3px;
   }
 
-  .bar.scrolled {
-    background: transparent !important;
-    border-bottom-color: transparent !important;
-    box-shadow: none !important;
-  }
+  /* El navbar mantiene siempre su fondo "cuero": sin transparencia al hacer scroll */
 
   .bar > svg,
   .bar img {

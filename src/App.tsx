@@ -1137,7 +1137,7 @@ export default function App() {
       <header className={`bar sticky top-0 z-50 transition-all duration-300 ${isScrolled ? "scrolled !h-14 sm:!h-16 py-1" : ""}`}>
         {/* Mobile centered logo */}
         <div
-          className="cursor-pointer flex sm:hidden items-center justify-center flex-1 w-full py-0 px-0"
+          className="relative cursor-pointer flex sm:hidden items-center justify-center flex-1 w-full py-0 px-0"
           onClick={() => { setActiveTab("home"); setSelectedStudentId(null); }}
           title="Ilumina - Bitácora del Docente"
         >
@@ -1146,6 +1146,24 @@ export default function App() {
             alt="Ilumina"
             className="object-contain drop-shadow-[0_2px_0_rgba(0,0,0,0.25)] h-9 max-w-[190px]"
           />
+          {/* Descargar Hoja de Actuación (móvil): icono a la derecha del logo */}
+          {currentClass && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                downloadHojaActuacion({
+                  section: currentClass,
+                  students: currentClass.students || [],
+                  teacherName: teacher.name
+                });
+              }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-2"
+              aria-label="Descargar hoja de actuación"
+              title="Descargar hoja de actuación y notas en plantilla Excel"
+            >
+              <Download className="w-5 h-5 text-[#F6E7C8]" />
+            </button>
+          )}
         </div>
 
         {/* Desktop icon logo */}
@@ -1207,11 +1225,11 @@ export default function App() {
                 students: currentClass.students || [],
                 teacherName: teacher.name
               })}
-              className="tab hidden sm:flex"
+              className="flex items-center justify-center mr-1"
               aria-label="Descargar hoja de actuación"
               title="Descargar hoja de actuación y notas en plantilla Excel"
             >
-              <Download className="w-4.5 h-4.5" />
+              <Download className="w-4.5 h-4.5 text-[#F6E7C8]" />
             </button>
           )}
           <span
