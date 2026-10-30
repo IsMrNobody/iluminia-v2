@@ -1141,7 +1141,8 @@ export async function ensureEvaluationCriteriaForClass(materiaId: string, lapso:
     const { data: existing } = await client
       .from("evaluaciones")
       .select("id, clave_item")
-      .eq("materia_id", materiaId);
+      .eq("materia_id", materiaId)
+      .eq("lapso", lapso);
 
     if (existing && existing.length > 0) {
       existing.forEach((e: any) => {
@@ -1176,32 +1177,122 @@ export async function ensureEvaluationCriteriaForClass(materiaId: string, lapso:
   return evalMap;
 }
 
+function formatGradeYear(yr?: string): string {
+  const clean = (yr || "").toLowerCase();
+  if (clean.includes("1")) return "1er Año";
+  if (clean.includes("2")) return "2do Año";
+  if (clean.includes("3")) return "3er Año";
+  if (clean.includes("4")) return "4to Año";
+  if (clean.includes("5")) return "5to Año";
+  return yr || "1er Año";
+}
+
+function extractStudentMetadataLocally(alumno: any): { gradeYear: string; sectionLetter: string } {
+  if (alumno?.avatar_url) {
+    const yrMatch = alumno.avatar_url.match(/[#&]yr=([^&#]+)/);
+    const secMatch = alumno.avatar_url.match(/[#&]sec=([^&#]+)/);
+    if (yrMatch || secMatch) {
+      const yrDecoded = yrMatch ? decodeURIComponent(yrMatch[1]).replace(/_/g, " ") : "1er Año";
+      const secDecoded = secMatch ? decodeURIComponent(secMatch[1]).toUpperCase() : "A";
+      return {
+        gradeYear: formatGradeYear(yrDecoded),
+        sectionLetter: secDecoded || "A",
+      };
+    }
+  }
+  if (alumno?.email && alumno.email.startsWith("meta:")) {
+    const parts = alumno.email.replace("meta:", "").split(":");
+    return {
+      gradeYear: formatGradeYear(parts[0]?.replace(/_/g, " ")),
+      sectionLetter: parts[1]?.toUpperCase() || "A",
+    };
+  }
+  return {
+    gradeYear: "1er Año",
+    sectionLetter: "A",
+  };
+}
+
 // Fetch all students and their saved grades for a specific class section from Supabase
 export async function getStudentsForClassFromSupabase(materiaId: string): Promise<Student[]> {
   const client: any = getSupabaseClient();
   if (!materiaId) return [];
 
   try {
-    // 1. Get enrollments with student data
+    // 1. Get materia metadata (grade + section) so we can rebuild the correct roster
+    const { data: matMeta } = await client
+      .from("materias")
+      .select("grado_ano, seccion")
+      .eq("id", materiaId)
+      .maybeSingle();
+
+    // 2. Read matriculas (only as a source for list numbers / attendance). Deduped by alumno_id.
     const { data: enrollments, error: enrollError } = await client
       .from("matriculas")
-      .select("numero_lista, asistencia_porcentaje, alumno_id, alumnos ( id, cedula, nombres, apellidos, avatar_url )")
+      .select("numero_lista, asistencia_porcentaje, alumno_id, alumnos ( id, cedula, nombres, apellidos, avatar_url, email )")
       .eq("materia_id", materiaId)
       .order("numero_lista", { ascending: true });
 
-    let enrollmentsList: any[] = enrollments || [];
+    if (enrollError) {
+      console.warn("Could not fetch enrollments for materia:", materiaId, enrollError);
+      return [];
+    }
 
-    if (enrollError || enrollmentsList.length === 0) {
-      const { data: plainEnrollments } = await client
-        .from("matriculas")
-        .select("numero_lista, asistencia_porcentaje, alumno_id")
-        .eq("materia_id", materiaId)
-        .order("numero_lista", { ascending: true });
-      if (plainEnrollments && plainEnrollments.length > 0) {
-        enrollmentsList = plainEnrollments;
-      } else {
-        return [];
+    const uniqueByAlumno = new Map<string, any>();
+    (enrollments || []).forEach((enr: any) => {
+      const key = String(enr.alumno_id || "").trim();
+      if (!key) return;
+      if (!uniqueByAlumno.has(key)) uniqueByAlumno.set(key, enr);
+    });
+    const dedupedMatriculas: any[] = Array.from(uniqueByAlumno.values());
+
+    // 3. Rebuild the roster from alumnos where the alumno's OWN grade + section match the materia.
+    //    This keeps polluted/cross-section matriculas out of every section card.
+    let enrollmentsList: any[] = [];
+    const targetGrade = formatGradeYear(matMeta?.grado_ano || "");
+    const targetSection = String(matMeta?.seccion || "").trim().toUpperCase();
+
+    if (targetGrade && targetSection) {
+      const { data: matchingAlumnos, error: matchingErr } = await client
+        .from("alumnos")
+        .select("id, cedula, nombres, apellidos, avatar_url, email, ano, seccion, list_number")
+        .eq("ano", targetGrade)
+        .ilike("seccion", targetSection);
+
+      if (!matchingErr && matchingAlumnos && matchingAlumnos.length > 0) {
+        const matriculasByAlumno = new Map<string, any>();
+        dedupedMatriculas.forEach((enr: any) => {
+          const key = String(enr.alumno_id || "");
+          if (key && !matriculasByAlumno.has(key)) matriculasByAlumno.set(key, enr);
+        });
+
+        const ordered = matchingAlumnos.sort((a: any, b: any) => {
+          const la = Number(a.list_number || 0);
+          const lb = Number(b.list_number || 0);
+          if (la !== lb) return la === 0 ? 1 : lb === 0 ? -1 : la - lb;
+          return String(a.cedula || "").localeCompare(String(b.cedula || ""));
+        });
+
+        enrollmentsList = ordered.map((a: any, i: number) => {
+          const enr = matriculasByAlumno.get(String(a.id));
+          return {
+            numero_lista: Number(enr?.numero_lista || a.list_number || i + 1),
+            asistencia_porcentaje: enr?.asistencia_porcentaje ?? 100,
+            alumno_id: a.id,
+            alumnos: a,
+          };
+        });
       }
+    }
+
+    // 4. Fallback: if the materia has no grade/section metadata we cannot filter safely,
+    //    fall back to the deduped matriculas belonging to this materia only.
+    if (enrollmentsList.length === 0 && !(targetGrade && targetSection) && dedupedMatriculas.length > 0) {
+      enrollmentsList = dedupedMatriculas;
+    }
+
+    if (enrollmentsList.length === 0) {
+      return [];
     }
 
     const alumnoMap: Record<string, any> = {};
@@ -1269,8 +1360,20 @@ export async function getStudentsForClassFromSupabase(materiaId: string): Promis
       });
     }
 
-    // 4. Build Student objects with multi-lapso grades structure
-    return enrollmentsList.map((enr: any) => {
+    // Dedupe again at the Student level (same cedula = same person, keep first row)
+    const seenPersonas = new Set<string>();
+    return enrollmentsList.filter((enr: any) => {
+      const a = alumnoMap[enr.alumno_id] || (Array.isArray(enr.alumnos) ? enr.alumnos[0] : enr.alumnos) || {};
+      const stdId = enr.alumno_id || a.id;
+      const personaKey =
+        a.cedula ||
+        `${String(a.nombres || "").trim().toLowerCase()}_${String(a.apellidos || "").trim().toLowerCase()}` ||
+        stdId;
+      if (!personaKey) return true;
+      if (seenPersonas.has(String(personaKey))) return false;
+      seenPersonas.add(String(personaKey));
+      return true;
+    }).map((enr: any) => {
       const a = alumnoMap[enr.alumno_id] || (Array.isArray(enr.alumnos) ? enr.alumnos[0] : enr.alumnos) || {};
       const stdId = enr.alumno_id || a.id;
       const grades = createEmptyGrades();
@@ -1481,6 +1584,10 @@ export async function saveGradesToSupabase(
     return { success: false, savedToSupabase: false, message: "Falta ID de materia o estudiante." };
   }
 
+  const safeGrades = updatedGrades || {};
+  const academic = safeGrades.academic || {};
+  const ethical = safeGrades.ethical || {};
+
   try {
     // Resolve real student UUID in Supabase
     let realAlumnoId = alumnoId;
@@ -1514,18 +1621,18 @@ export async function saveGradesToSupabase(
 
     // 2. Also update evaluation criterion metadata (names, weights) if present
     const criteriaUpdates = [
-      { key: "homework", item: updatedGrades.academic.homework },
-      { key: "talentShow", item: updatedGrades.academic.talentShow },
-      { key: "assembly", item: updatedGrades.academic.assembly },
-      { key: "essay", item: updatedGrades.academic.essay },
-      { key: "performance", item: updatedGrades.academic.performance },
-      { key: "responsibility", item: updatedGrades.ethical.responsibility },
-      { key: "personalCare", item: updatedGrades.ethical.personalCare },
+      { key: "homework", item: academic.homework },
+      { key: "talentShow", item: academic.talentShow },
+      { key: "assembly", item: academic.assembly },
+      { key: "essay", item: academic.essay },
+      { key: "performance", item: academic.performance },
+      { key: "responsibility", item: ethical.responsibility },
+      { key: "personalCare", item: ethical.personalCare },
     ];
 
     for (const c of criteriaUpdates) {
       const evalId = evalMap[c.key];
-      if (evalId && c.item.name) {
+      if (evalId && c.item && c.item.name) {
         await client
           .from("evaluaciones")
           .update({
@@ -1539,13 +1646,13 @@ export async function saveGradesToSupabase(
 
     // 3. Save each score into calificaciones table
     const scoresToUpsert = [
-      { key: "homework", score: updatedGrades.academic.homework.score },
-      { key: "talentShow", score: updatedGrades.academic.talentShow.score },
-      { key: "assembly", score: updatedGrades.academic.assembly.score },
-      { key: "essay", score: updatedGrades.academic.essay.score },
-      { key: "performance", score: updatedGrades.academic.performance.score },
-      { key: "responsibility", score: updatedGrades.ethical.responsibility.score },
-      { key: "personalCare", score: updatedGrades.ethical.personalCare.score },
+      { key: "homework", score: academic.homework?.score },
+      { key: "talentShow", score: academic.talentShow?.score },
+      { key: "assembly", score: academic.assembly?.score },
+      { key: "essay", score: academic.essay?.score },
+      { key: "performance", score: academic.performance?.score },
+      { key: "responsibility", score: ethical.responsibility?.score },
+      { key: "personalCare", score: ethical.personalCare?.score },
     ];
 
     for (const item of scoresToUpsert) {
@@ -1594,14 +1701,14 @@ export async function saveGradesToSupabase(
     return {
       success: true,
       savedToSupabase: true,
-      message: "¡Calificaciones guardadas y asignadas con éxito!",
+      message: "¡Calificaciones guardadas y asignadas con éxito en la base de datos!",
     };
   } catch (err: any) {
-    console.warn("Could not save grades to Supabase:", err);
+    console.error("Error saving grades to Supabase:", err);
     return {
-      success: true,
+      success: false,
       savedToSupabase: false,
-      message: `Calificaciones guardadas localmente.`,
+      message: `Error al guardar en la base de datos: ${err?.message || "Error desconocido"}`,
     };
   }
 }

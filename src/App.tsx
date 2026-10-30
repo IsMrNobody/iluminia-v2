@@ -16,7 +16,8 @@ import {
   isUserAdmin,
   getRegisteredStudentsForSection,
   convertRegisteredToClassStudents,
-  fetchRegisteredStudentsFromDatabase
+  fetchRegisteredStudentsFromDatabase,
+  syncRegisteredStudentsWithClasses
 } from "./lib/adminService";
 import { AddStudentsModal, StudentCandidate } from "./components/AddStudentsModal";
 import {
@@ -137,35 +138,8 @@ export default function App() {
     return null;
   });
 
-  // Classes state (empty or loaded from local storage, without any dummy example subjects)
-  const [classes, setClasses] = useState<ClassSection[]>(() => {
-    // Purge old mock storage
-    localStorage.removeItem("ilumina_classes_state");
-    const savedTeacher = localStorage.getItem("ilumina_current_teacher");
-    if (savedTeacher) {
-      try {
-        const teacherObj = JSON.parse(savedTeacher);
-        const emailKey = teacherObj?.email || teacherObj?.id || "default";
-        const saved = localStorage.getItem(`ilumina_classes_${emailKey.toLowerCase()}`);
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed)) {
-            return parsed.filter(c => 
-              !c.id.startsWith("class-math-") && 
-              !c.id.startsWith("class-crp-") && 
-              !c.id.startsWith("mock-") &&
-              c.id !== "class-init" && 
-              !c.subjectName?.includes("Aula 1") && 
-              c.subjectName !== "Cátedra Principal"
-            );
-          }
-        }
-      } catch (e) {
-        console.error("Error loading saved classes:", e);
-      }
-    }
-    return [];
-  });
+  // Classes state (loaded exclusively from Supabase, no localStorage caching)
+  const [classes, setClasses] = useState<ClassSection[]>([]);
 
   // Automatically fetch teacher's real subjects from Supabase whenever teacher changes
   useEffect(() => {
@@ -178,65 +152,31 @@ export default function App() {
     if (!teacherIdentifier) return;
 
     let isMounted = true;
+
+    // Purge any legacy class cache from localStorage to prevent stale/bloated data issues
+    try {
+      const storageKey = (teacher.email || teacher.id || "default").toLowerCase();
+      localStorage.removeItem(`ilumina_classes_${storageKey}`);
+      localStorage.removeItem("ilumina_classes_state");
+    } catch {}
+
     fetchRegisteredStudentsFromDatabase()
       .catch(() => [])
       .then(() => getTeacherClassesFromSupabase(teacherIdentifier, teacher.name))
       .then((supaClasses) => {
         if (!isMounted) return;
-        const storageKey = (teacher.email || teacher.id || "default").toLowerCase();
-        if (supaClasses && supaClasses.length > 0) {
-          // Auto-fill students registered for this year and section if class has none
-          const enriched = supaClasses.map(cls => {
-            const matching = getRegisteredStudentsForSection(cls.gradeYear, cls.sectionLetter);
-            if (matching.length > 0) {
-              // Auto-enroll in Supabase matriculas in background
-              try {
-                const client: any = getSupabaseClient();
-                matching.forEach((reg, i) => {
-                  client.from("matriculas").upsert({
-                    materia_id: cls.id,
-                    alumno_id: reg.id,
-                    numero_lista: i + 1,
-                    asistencia_porcentaje: 100,
-                  }, { onConflict: "materia_id,alumno_id" }).catch(() => {});
-                });
-              } catch {}
 
-              return {
-                ...cls,
-                students: convertRegisteredToClassStudents(matching),
-              };
-            }
-            if (!cls.students || cls.students.length === 0) {
-              if (matching.length > 0) {
-                return {
-                  ...cls,
-                  students: convertRegisteredToClassStudents(matching),
-                };
-              }
-            }
-            return cls;
-          });
-          setClasses(enriched);
-          localStorage.setItem(`ilumina_classes_${storageKey}`, JSON.stringify(enriched));
+        if (supaClasses && supaClasses.length > 0) {
+          const { updatedClasses } = syncRegisteredStudentsWithClasses(supaClasses);
+          const finalClasses = updatedClasses.length > 0 ? updatedClasses : supaClasses;
+          setClasses(finalClasses);
         } else {
-          // If classes were saved locally for this teacher, check and retain them
-          const localSaved = localStorage.getItem(`ilumina_classes_${storageKey}`);
-          if (localSaved) {
-            try {
-              const parsed = JSON.parse(localSaved);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                setClasses(parsed);
-                return;
-              }
-            } catch {}
-          }
           setClasses([]);
-          localStorage.removeItem(`ilumina_classes_${storageKey}`);
         }
       })
       .catch((err) => {
         console.warn("Could not fetch classes from Supabase:", err);
+        setClasses([]);
       });
 
     return () => {
@@ -482,16 +422,6 @@ export default function App() {
     });
   }, [classes]);
 
-  // Persist state to localstorage scoped to current teacher
-  useEffect(() => {
-    if (teacher?.email) {
-      if (classes.length > 0) {
-        localStorage.setItem(`ilumina_classes_${teacher.email.toLowerCase()}`, JSON.stringify(classes));
-      } else {
-        localStorage.removeItem(`ilumina_classes_${teacher.email.toLowerCase()}`);
-      }
-    }
-  }, [classes, teacher?.email]);
 
   // Current selected class (null if no classes exist)
   const currentClass: ClassSection | null = classes.find(c => c.id === selectedClassId) || classes[0] || null;
@@ -523,7 +453,7 @@ export default function App() {
     ? currentClass.students.find(s => s.id === selectedStudentId) || null 
     : null;
 
-  // Handle saving student grades and evaluation criteria
+  // Handle saving student grades and evaluation criteria - Database-First approach
   const handleSaveStudentGrades = async (studentId: string, updatedGrades: any) => {
     if (!currentClass) return;
 
@@ -531,71 +461,122 @@ export default function App() {
     const lapsoKey = activeLapso || 1;
     const activeLapsoGrades = updatedGrades[lapsoKey] || updatedGrades[1] || updatedGrades;
 
-    // 1. Optimistic UI update - Strictly for the current class being evaluated!
-    setClasses(prevClasses => {
-      const nextClasses = prevClasses.map(cls => {
-        // IMPORTANT: Only update the specific class being graded! Do not leak grades to other subjects.
-        if (cls.id !== targetClassId) return cls;
-
-        const updatedStudents = cls.students.map(s => {
-          const studentGradesObj = (s.grades && (s.grades[1] || s.grades[2] || s.grades[3])
-            ? s.grades
-            : { 1: activeLapsoGrades, 2: activeLapsoGrades, 3: activeLapsoGrades }) as Record<number, any>;
-
-          if (s.id === studentId) {
-            return {
-              ...s,
-              grades: {
-                ...studentGradesObj,
-                [lapsoKey]: activeLapsoGrades
-              } as any
-            };
-          }
-          // Propagate updated evaluation criteria (name, description, weight) to other students in THIS same class for activeLapso only
-          const targetLapsoGrades = (studentGradesObj[lapsoKey] || activeLapsoGrades) as any;
-          return {
-            ...s,
-            grades: {
-              ...studentGradesObj,
-              [lapsoKey]: {
-                academic: {
-                  homework: { ...targetLapsoGrades.academic.homework, name: activeLapsoGrades.academic.homework.name, description: activeLapsoGrades.academic.homework.description, weight: activeLapsoGrades.academic.homework.weight },
-                  talentShow: { ...targetLapsoGrades.academic.talentShow, name: activeLapsoGrades.academic.talentShow.name, description: activeLapsoGrades.academic.talentShow.description, weight: activeLapsoGrades.academic.talentShow.weight },
-                  assembly: { ...targetLapsoGrades.academic.assembly, name: activeLapsoGrades.academic.assembly.name, description: activeLapsoGrades.academic.assembly.description, weight: activeLapsoGrades.academic.assembly.weight },
-                  essay: { ...targetLapsoGrades.academic.essay, name: activeLapsoGrades.academic.essay.name, description: activeLapsoGrades.academic.essay.description, weight: activeLapsoGrades.academic.essay.weight },
-                  performance: { ...targetLapsoGrades.academic.performance, name: activeLapsoGrades.academic.performance.name, description: activeLapsoGrades.academic.performance.description, weight: activeLapsoGrades.academic.performance.weight },
-                },
-                ethical: {
-                  responsibility: { ...targetLapsoGrades.ethical.responsibility, name: activeLapsoGrades.ethical.responsibility.name, description: activeLapsoGrades.ethical.responsibility.description, weight: activeLapsoGrades.ethical.responsibility.weight },
-                  personalCare: { ...targetLapsoGrades.ethical.personalCare, name: activeLapsoGrades.ethical.personalCare.name, description: activeLapsoGrades.ethical.personalCare.description, weight: activeLapsoGrades.ethical.personalCare.weight },
-                }
-              }
-            } as any
-          };
-        });
-
-        return {
-          ...cls,
-          students: updatedStudents
-        };
-      });
-
-      if (teacher?.email || teacher?.id) {
-        const storageKey = (teacher.email || teacher.id || "default").toLowerCase();
-        localStorage.setItem(`ilumina_classes_${storageKey}`, JSON.stringify(nextClasses));
-      }
-      return nextClasses;
-    });
-
-    // 2. Persist to database silently and reliably for this specific subject
     try {
+      // 1. SAVE TO DATABASE FIRST
       await saveGradesToSupabase(targetClassId, studentId, activeLapsoGrades, currentClass.lapso || activeLapso);
-    } catch (e) {
-      console.warn("Could not persist grades to Supabase:", e);
-    }
 
-    setSuccessToast("¡Notas guardadas!");
-    setTimeout(() => setSuccessToast(""), 3000);
+      // 2. QUERY DATABASE TO GET AUTHORITATIVE FRESH STATE
+      const teacherIdentifier = teacher?.id || teacher?.email || "";
+      if (teacherIdentifier) {
+        const freshClasses = await getTeacherClassesFromSupabase(teacherIdentifier, teacher.name);
+        if (freshClasses && freshClasses.length > 0) {
+          setClasses(freshClasses);
+        }
+      }
+
+      setSuccessToast("¡Notas guardadas en la base de datos con éxito!");
+      setTimeout(() => setSuccessToast(""), 3000);
+    } catch (e) {
+      console.error("Error saving grades to database:", e);
+      setSuccessToast("Error al guardar en la base de datos.");
+      setTimeout(() => setSuccessToast(""), 3000);
+    }
+  };
+
+  // Handle updating subject evaluation configuration across ALL sections of the same subject - Database-First approach
+  const handleUpdateSubjectEvaluations = async (subjectName: string, gradeYear: string, updatedLapsoContent: any) => {
+    const lapsoKey = activeLapso || 1;
+    const supa: any = getSupabaseClient();
+
+    try {
+      const matchingClasses = classes.filter(
+        c => c.subjectName.trim().toLowerCase() === subjectName.trim().toLowerCase() &&
+             c.gradeYear.trim().toLowerCase() === gradeYear.trim().toLowerCase()
+      );
+
+      // 1. SAVE TO DATABASE FIRST (Evaluations & Student Grades across matching classes)
+      for (const cls of matchingClasses) {
+        const allItems = {
+          ...(updatedLapsoContent.academic || {}),
+          ...(updatedLapsoContent.ethical || {})
+        };
+
+        for (const [key, item] of Object.entries(allItems) as [string, any][]) {
+          const category = updatedLapsoContent.academic?.[key] ? "academica" : "etica";
+          try {
+            const { data: existingEval } = await supa
+              .from("evaluaciones")
+              .select("id")
+              .eq("materia_id", cls.id)
+              .eq("lapso", lapsoKey)
+              .eq("clave_item", key)
+              .maybeSingle();
+
+            if (existingEval?.id) {
+              await supa.from("evaluaciones").update({
+                titulo: item.name,
+                categoria: category,
+                ponderacion_porcentaje: item.weight,
+                descripcion: item.description || ""
+              }).eq("id", existingEval.id);
+            } else {
+              await supa.from("evaluaciones").insert({
+                materia_id: cls.id,
+                lapso: lapsoKey,
+                clave_item: key,
+                titulo: item.name,
+                categoria: category,
+                ponderacion_porcentaje: item.weight,
+                descripcion: item.description || ""
+              });
+            }
+          } catch (err) {
+            console.warn("Could not save evaluation in Supabase:", err);
+          }
+        }
+
+        // Save grades for students in this class
+        for (const std of (cls.students || [])) {
+          const studentGradesObj = std.grades || {};
+          const existingLapsoData = studentGradesObj[lapsoKey] || studentGradesObj[1] || updatedLapsoContent;
+          const mergedAcademic: any = {};
+          Object.keys(updatedLapsoContent.academic || {}).forEach(k => {
+            mergedAcademic[k] = {
+              ...updatedLapsoContent.academic[k],
+              score: existingLapsoData?.academic?.[k]?.score
+            };
+          });
+          const mergedEthical: any = {};
+          Object.keys(updatedLapsoContent.ethical || {}).forEach(k => {
+            mergedEthical[k] = {
+              ...updatedLapsoContent.ethical[k],
+              score: existingLapsoData?.ethical?.[k]?.score
+            };
+          });
+
+          await saveGradesToSupabase(cls.id, std.id, {
+            academic: mergedAcademic,
+            ethical: mergedEthical
+          }, lapsoKey).catch(() => {});
+        }
+      }
+
+      // 2. QUERY DATABASE TO GET AUTHORITATIVE FRESH STATE
+      const teacherIdentifier = teacher?.id || teacher?.email || "";
+      if (teacherIdentifier) {
+        const freshClasses = await getTeacherClassesFromSupabase(teacherIdentifier, teacher.name);
+        if (freshClasses && freshClasses.length > 0) {
+          setClasses(freshClasses);
+        }
+      }
+
+      setSuccessToast("¡Evaluaciones guardadas en la base de datos y actualizadas!");
+      setTimeout(() => setSuccessToast(""), 3500);
+    } catch (e) {
+      console.error("Error saving subject evaluations to database:", e);
+      setSuccessToast("Error al guardar evaluaciones en la base de datos.");
+      setTimeout(() => setSuccessToast(""), 3500);
+    }
   };
 
   // Handle adding existing candidate students (from directory or any other section/year) to the current class
@@ -644,10 +625,6 @@ export default function App() {
         };
       });
 
-      if (teacher?.email || teacher?.id) {
-        const storageKey = (teacher.email || teacher.id || "default").toLowerCase();
-        localStorage.setItem(`ilumina_classes_${storageKey}`, JSON.stringify(nextClasses));
-      }
       return nextClasses;
     });
 
@@ -715,10 +692,6 @@ export default function App() {
         };
       });
 
-      if (teacher?.email || teacher?.id) {
-        const storageKey = (teacher.email || teacher.id || "default").toLowerCase();
-        localStorage.setItem(`ilumina_classes_${storageKey}`, JSON.stringify(nextClasses));
-      }
       return nextClasses;
     });
 
@@ -742,10 +715,6 @@ export default function App() {
         };
       });
 
-      if (teacher?.email || teacher?.id) {
-        const storageKey = (teacher.email || teacher.id || "default").toLowerCase();
-        localStorage.setItem(`ilumina_classes_${storageKey}`, JSON.stringify(nextClasses));
-      }
       return nextClasses;
     });
 
@@ -774,10 +743,6 @@ export default function App() {
     // Update classes state immediately
     setClasses(prevClasses => {
       const nextClasses = prevClasses.filter(c => !classIdsToDelete.includes(c.id));
-      if (teacher?.email || teacher?.id) {
-        const storageKey = (teacher.email || teacher.id || "default").toLowerCase();
-        localStorage.setItem(`ilumina_classes_${storageKey}`, JSON.stringify(nextClasses));
-      }
       return nextClasses;
     });
 
@@ -807,10 +772,6 @@ export default function App() {
   const handleDeleteSection = async (sectionId: string) => {
     setClasses(prevClasses => {
       const nextClasses = prevClasses.filter(c => c.id !== sectionId);
-      if (teacher?.email || teacher?.id) {
-        const storageKey = (teacher.email || teacher.id || "default").toLowerCase();
-        localStorage.setItem(`ilumina_classes_${storageKey}`, JSON.stringify(nextClasses));
-      }
       return nextClasses;
     });
 
@@ -883,8 +844,6 @@ export default function App() {
 
         setClasses(prev => {
           const next = [...prev, ...enrichedList];
-          const storageKey = (teacher.email || teacher.id || "default").toLowerCase();
-          localStorage.setItem(`ilumina_classes_${storageKey}`, JSON.stringify(next));
           return next;
         });
         setSuccessToast(fillWithDefault ? `¡Sección ${cleanLetter} agregada con alumnos!` : `¡Sección ${cleanLetter} creada vacía!`);
@@ -959,8 +918,6 @@ export default function App() {
             next.push(item);
           }
         });
-        const storageKey = (teacher.email || teacher.id || "default").toLowerCase();
-        localStorage.setItem(`ilumina_classes_${storageKey}`, JSON.stringify(next));
         return next;
       });
 
@@ -1082,10 +1039,8 @@ export default function App() {
               const teacherKey = (newTeacher.email || "default").toLowerCase();
               if (loadedClasses.length > 0) {
                 setSelectedClassId(loadedClasses[0].id);
-                localStorage.setItem(`ilumina_classes_${teacherKey}`, JSON.stringify(loadedClasses));
               } else {
                 setSelectedClassId("");
-                localStorage.removeItem(`ilumina_classes_${teacherKey}`);
               }
               setActiveTab("home");
               setSelectedStudentId(null);
@@ -1315,6 +1270,8 @@ export default function App() {
                     }}
                     onAddNewSection={handleAddNewSectionToSubject}
                     onDeleteSection={handleDeleteSection}
+                    onUpdateSubjectEvaluations={handleUpdateSubjectEvaluations}
+                    activeLapso={activeLapso}
                   />
                 ) : currentClass ? (
                   <ClassOverviewView
@@ -1327,6 +1284,7 @@ export default function App() {
                     onAddStudent={() => setIsAddStudentOpen(true)}
                     onDeleteStudent={handleDeleteStudent}
                     onSaveStudentGrades={handleSaveStudentGrades}
+                    onUpdateSubjectEvaluations={handleUpdateSubjectEvaluations}
                     onPendingChangesChange={(hasChanges, saveFn) => {
                       setHasUnsavedSectionChanges(hasChanges);
                       setSaveSectionChangesFn(() => saveFn);
@@ -1391,8 +1349,6 @@ export default function App() {
                   }}
                   onUpdateClasses={(updatedClasses) => {
                     setClasses(updatedClasses);
-                    const storageKey = (teacher.email || teacher.id || "default").toLowerCase();
-                    localStorage.setItem(`ilumina_classes_${storageKey}`, JSON.stringify(updatedClasses));
                   }}
                   onCurrentTeacherUpdated={(updatedTeacher) => {
                     setTeacher(updatedTeacher);

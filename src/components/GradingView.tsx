@@ -71,7 +71,7 @@ export default function GradingView({
       personalCare: { id: "pc", name: "Presentación Personal", weight: 5, description: "" },
     }
   };
-  const studentLapso = student?.grades?.[activeLapso] || student?.grades?.[1];
+  const studentLapso = (student?.grades?.[activeLapso] || student?.grades?.[1]) as any;
   const lapsoData = {
     academic: {
       homework: studentLapso?.academic?.homework || defaultLapso.academic.homework,
@@ -87,14 +87,14 @@ export default function GradingView({
   };
 
   // Local score states for active lapso
-  const [hwScore, setHwScore] = useState<string>(lapsoData.academic?.homework?.score?.toString() ?? "");
-  const [talentScore, setTalentScore] = useState<string>(lapsoData.academic?.talentShow?.score?.toString() ?? "");
-  const [assemblyScore, setAssemblyScore] = useState<string>(lapsoData.academic?.assembly?.score?.toString() ?? "");
-  const [essayScore, setEssayScore] = useState<string>(lapsoData.academic?.essay?.score?.toString() ?? "");
-  const [performanceScore, setPerformanceScore] = useState<string>(lapsoData.academic?.performance?.score?.toString() ?? "");
+  const [hwScore, setHwScore] = useState<string>((lapsoData.academic?.homework as any)?.score?.toString() ?? "");
+  const [talentScore, setTalentScore] = useState<string>((lapsoData.academic?.talentShow as any)?.score?.toString() ?? "");
+  const [assemblyScore, setAssemblyScore] = useState<string>((lapsoData.academic?.assembly as any)?.score?.toString() ?? "");
+  const [essayScore, setEssayScore] = useState<string>((lapsoData.academic?.essay as any)?.score?.toString() ?? "");
+  const [performanceScore, setPerformanceScore] = useState<string>((lapsoData.academic?.performance as any)?.score?.toString() ?? "");
 
-  const [responsibilityScore, setResponsibilityScore] = useState<string>(lapsoData.ethical?.responsibility?.score?.toString() ?? "");
-  const [personalCareScore, setPersonalCareScore] = useState<string>(lapsoData.ethical?.personalCare?.score?.toString() ?? "");
+  const [responsibilityScore, setResponsibilityScore] = useState<string>((lapsoData.ethical?.responsibility as any)?.score?.toString() ?? "");
+  const [personalCareScore, setPersonalCareScore] = useState<string>((lapsoData.ethical?.personalCare as any)?.score?.toString() ?? "");
 
   // Update local score states whenever activeLapso or student changes
   useEffect(() => {
@@ -108,25 +108,7 @@ export default function GradingView({
     setPersonalCareScore(cur?.ethical?.personalCare?.score?.toString() ?? "");
   }, [activeLapso, student]);
 
-  // Local criteria name states
-  const [hwName, setHwName] = useState<string>(lapsoData.academic?.homework?.name ?? "Hoja de trabajo");
-  const [talentName, setTalentName] = useState<string>(lapsoData.academic?.talentShow?.name ?? "Muestra de talentos");
-  const [assemblyName, setAssemblyName] = useState<string>(lapsoData.academic?.assembly?.name ?? "Montaje");
-  const [essayName, setEssayName] = useState<string>(lapsoData.academic?.essay?.name ?? "Ensayo");
-  const [performanceName, setPerformanceName] = useState<string>(lapsoData.academic?.performance?.name ?? "Puesta en escena");
-
-  // Local criteria weight states (for editing)
-  const [hwWeight, setHwWeight] = useState<number>(lapsoData.academic?.homework?.weight ?? 20);
-  const [talentWeight, setTalentWeight] = useState<number>(lapsoData.academic?.talentShow?.weight ?? 20);
-  const [assemblyWeight, setAssemblyWeight] = useState<number>(lapsoData.academic?.assembly?.weight ?? 20);
-  const [essayWeight, setEssayWeight] = useState<number>(lapsoData.academic?.essay?.weight ?? 20);
-  const [performanceWeight, setPerformanceWeight] = useState<number>(lapsoData.academic?.performance?.weight ?? 10);
-  const [responsibilityWeight, setResponsibilityWeight] = useState<number>(lapsoData.ethical?.responsibility?.weight ?? 5);
-  const [personalCareWeight, setPersonalCareWeight] = useState<number>(lapsoData.ethical?.personalCare?.weight ?? 5);
-
   const [hasSaved, setHasSaved] = useState(false);
-  const [isEditingNames, setIsEditingNames] = useState(false);
-  const [isEditingWeights, setIsEditingWeights] = useState(false);
 
   // Parse numerical scores
   const parseNum = (val: string): number | undefined => {
@@ -141,54 +123,33 @@ export default function GradingView({
     const updatedLapsoContent = {
       academic: {
         homework: {
-          id: lapsoData.academic?.homework?.id || "homework",
-          name: hwName,
-          description: lapsoData.academic?.homework?.description || "Comprensión conceptual y precisión.",
-          weight: hwWeight,
+          ...lapsoData.academic.homework,
           score: parseNum(hwScore)
         },
         talentShow: {
-          id: lapsoData.academic?.talentShow?.id || "talentShow",
-          name: talentName,
-          description: lapsoData.academic?.talentShow?.description || "Demostración práctica de habilidades.",
-          weight: talentWeight,
+          ...lapsoData.academic.talentShow,
           score: parseNum(talentScore)
         },
         assembly: {
-          id: lapsoData.academic?.assembly?.id || "assembly",
-          name: assemblyName,
-          description: lapsoData.academic?.assembly?.description || "Estructura y coherencia del proyecto.",
-          weight: assemblyWeight,
+          ...lapsoData.academic.assembly,
           score: parseNum(assemblyScore)
         },
         essay: {
-          id: lapsoData.academic?.essay?.id || "essay",
-          name: essayName,
-          description: lapsoData.academic?.essay?.description || "Calidad y síntesis escrita.",
-          weight: essayWeight,
+          ...lapsoData.academic.essay,
           score: parseNum(essayScore)
         },
         performance: {
-          id: lapsoData.academic?.performance?.id || "performance",
-          name: performanceName,
-          description: lapsoData.academic?.performance?.description || "Presentación final y expresión.",
-          weight: performanceWeight,
+          ...lapsoData.academic.performance,
           score: parseNum(performanceScore)
         }
       },
       ethical: {
         responsibility: {
-          id: lapsoData.ethical?.responsibility?.id || "responsibility",
-          name: lapsoData.ethical?.responsibility?.name || "Responsabilidad",
-          description: lapsoData.ethical?.responsibility?.description || "Entrega a tiempo y compromiso.",
-          weight: responsibilityWeight,
+          ...lapsoData.ethical.responsibility,
           score: parseNum(responsibilityScore)
         },
         personalCare: {
-          id: lapsoData.ethical?.personalCare?.id || "personalCare",
-          name: lapsoData.ethical?.personalCare?.name || "Presentación",
-          description: lapsoData.ethical?.personalCare?.description || "Cumplimiento del orden y presentación.",
-          weight: personalCareWeight,
+          ...lapsoData.ethical.personalCare,
           score: parseNum(personalCareScore)
         }
       }
@@ -200,140 +161,15 @@ export default function GradingView({
       3: student.grades[3] ? JSON.parse(JSON.stringify(student.grades[3])) : JSON.parse(JSON.stringify(updatedLapsoContent)),
       [activeLapso]: updatedLapsoContent
     };
-  }, [hwScore, talentScore, assemblyScore, essayScore, performanceScore, responsibilityScore, personalCareScore, hwName, talentName, assemblyName, essayName, performanceName, hwWeight, talentWeight, assemblyWeight, essayWeight, performanceWeight, responsibilityWeight, personalCareWeight, student.grades, activeLapso]);
+  }, [hwScore, talentScore, assemblyScore, essayScore, performanceScore, responsibilityScore, personalCareScore, lapsoData, student.grades, activeLapso]);
 
   const finalScore = useMemo(() => {
     return getWeightedFinalScore(currentGrades, activeLapso);
   }, [currentGrades, activeLapso]);
 
-  const totalWeight = useMemo(() => {
-    return (
-      (Number(hwWeight) || 0) +
-      (Number(talentWeight) || 0) +
-      (Number(assemblyWeight) || 0) +
-      (Number(essayWeight) || 0) +
-      (Number(performanceWeight) || 0)
-    );
-  }, [hwWeight, talentWeight, assemblyWeight, essayWeight, performanceWeight]);
-
   const finalColor = finalScore >= 16 ? "#15803D" : finalScore >= 10 ? "#854D0E" : "#B91C1C";
   const finalBorder = finalScore >= 16 ? "#15803D" : finalScore >= 10 ? "#EAB308" : "#EF4444";
 
-  // Render functions for editable criterion labels
-  const renderEditableLabel = (item: typeof academicList[0], isEditing: boolean) => {
-    if (!isEditing) {
-      return (
-        <div className="flex items-center gap-2">
-          <span className="font-semibold text-sm sm:text-base text-[#2B2623] cursor-pointer" onClick={() => setIsEditingNames(true)}>
-            {item.label}
-          </span>
-          <button
-            type="button"
-            onClick={() => setIsEditingNames(true)}
-            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-[#E5DCD0] rounded"
-            title="Editar nombre"
-          >
-            <Edit2 className="w-3.5 h-3.5 text-[#6E655F]" />
-          </button>
-        </div>
-      );
-    }
-
-    // Edit mode
-    const getNameSetter = () => {
-      switch (item.key) {
-        case "homework": return setHwName;
-        case "talentShow": return setTalentName;
-        case "assembly": return setAssemblyName;
-        case "essay": return setEssayName;
-        case "performance": return setPerformanceName;
-      }
-    };
-
-    const setter = getNameSetter();
-    const getCurrentValue = () => {
-      switch (item.key) {
-        case "homework": return hwName;
-        case "talentShow": return talentName;
-        case "assembly": return assemblyName;
-        case "essay": return essayName;
-        case "performance": return performanceName;
-      }
-    };
-
-    return (
-      <div className="flex items-center gap-2">
-        <input
-          type="text"
-          value={getCurrentValue()}
-          onChange={(e) => setter(e.target.value)}
-          className="font-semibold text-sm sm:text-base text-[#2B2623] bg-white border-b-2 border-[#D97706] px-1 py-0.5 focus:outline-none focus:bg-[#FFF8E6] w-32 sm:w-40"
-          autoFocus
-        />
-      </div>
-    );
-  };
-
-  // Render function for editable weights
-  const renderEditableWeight = (item: any, isEditing: boolean) => {
-    const getWeightValue = () => {
-      switch (item.key) {
-        case "homework": return hwWeight;
-        case "talentShow": return talentWeight;
-        case "assembly": return assemblyWeight;
-        case "essay": return essayWeight;
-        case "performance": return performanceWeight;
-        case "responsibility": return responsibilityWeight;
-        case "personalCare": return personalCareWeight;
-        default: return item.weight;
-      }
-    };
-
-    const getWeightSetter = () => {
-      switch (item.key) {
-        case "homework": return setHwWeight;
-        case "talentShow": return setTalentWeight;
-        case "assembly": return setAssemblyWeight;
-        case "essay": return setEssayWeight;
-        case "performance": return setPerformanceWeight;
-        case "responsibility": return setResponsibilityWeight;
-        case "personalCare": return setPersonalCareWeight;
-        default: return () => {};
-      }
-    };
-
-    if (!isEditing) {
-      return (
-        <span
-          className="bg cp font-semibold text-xs py-1 px-3 text-center cursor-pointer hover:bg-[#FDE68A] transition-colors flex items-center gap-1"
-          style={{ background: "#FFF8E6", border: "2px solid #E3B866", borderRadius: "9999px" }}
-          onClick={() => setIsEditingWeights(true)}
-        >
-          {item.weight}% de la nota
-        </span>
-      );
-    }
-
-    return (
-      <div className="flex items-center gap-1 bg-[#FFF8E6] border-2 border-[#D97706] rounded-full px-2 py-0.5">
-        <input
-          type="number"
-          min="0"
-          max="100"
-          value={getWeightValue()}
-          onChange={(e) => getWeightSetter()(parseInt(e.target.value) || 0)}
-          className="w-8 text-center bg-transparent font-bold text-xs focus:outline-none"
-          autoFocus
-        />
-        <span className="text-[10px] font-bold">%</span>
-      </div>
-    );
-  };
-
-  // Exit editing mode when clicking outside or pressing Enter
-  const handleLabelBlur = () => {
-    setIsEditingNames(false);
-  };
   const handleScoreInput = (raw: string, setter: (val: string) => void) => {
     setHasSaved(false);
     if (raw === "") {
@@ -358,17 +194,17 @@ export default function GradingView({
   };
 
   const activeLapsoData = currentGrades[activeLapso] || currentGrades[1];
-  const academicList: { key: AcademicKey; label: string; weight: number; val: string; setter: (v: string) => void }[] = [
-    { key: "homework", label: hwName, weight: hwWeight, val: hwScore, setter: setHwScore },
-    { key: "talentShow", label: talentName, weight: talentWeight, val: talentScore, setter: setTalentScore },
-    { key: "assembly", label: assemblyName, weight: assemblyWeight, val: assemblyScore, setter: setAssemblyScore },
-    { key: "essay", label: essayName, weight: essayWeight, val: essayScore, setter: setEssayScore },
-    { key: "performance", label: performanceName, weight: performanceWeight, val: performanceScore, setter: setPerformanceScore }
+  const academicList = [
+    { key: "homework", label: lapsoData.academic.homework.name, weight: lapsoData.academic.homework.weight, val: hwScore, setter: setHwScore },
+    { key: "talentShow", label: lapsoData.academic.talentShow.name, weight: lapsoData.academic.talentShow.weight, val: talentScore, setter: setTalentScore },
+    { key: "assembly", label: lapsoData.academic.assembly.name, weight: lapsoData.academic.assembly.weight, val: assemblyScore, setter: setAssemblyScore },
+    { key: "essay", label: lapsoData.academic.essay.name, weight: lapsoData.academic.essay.weight, val: essayScore, setter: setEssayScore },
+    { key: "performance", label: lapsoData.academic.performance.name, weight: lapsoData.academic.performance.weight, val: performanceScore, setter: setPerformanceScore }
   ];
 
-  const ethicalList: { key: EthicalKey; label: string; weight: number; val: string; setter: (v: string) => void }[] = [
-    { key: "responsibility", label: activeLapsoData.ethical.responsibility.name, weight: responsibilityWeight, val: responsibilityScore, setter: setResponsibilityScore },
-    { key: "personalCare", label: activeLapsoData.ethical.personalCare.name, weight: personalCareWeight, val: personalCareScore, setter: setPersonalCareScore }
+  const ethicalList = [
+    { key: "responsibility", label: lapsoData.ethical.responsibility.name, weight: lapsoData.ethical.responsibility.weight, val: responsibilityScore, setter: setResponsibilityScore },
+    { key: "personalCare", label: lapsoData.ethical.personalCare.name, weight: lapsoData.ethical.personalCare.weight, val: personalCareScore, setter: setPersonalCareScore }
   ];
 
   return (
@@ -452,34 +288,9 @@ export default function GradingView({
               <h2 className="font-display text-lg sm:text-xl text-[#6B4423]">
                 Criterios académicos
               </h2>
-              <div className="flex items-center gap-2">
-                {(isEditingNames || isEditingWeights) && (
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                    totalWeight === 100 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
-                  }`}>
-                    Total: {totalWeight}%
-                  </span>
-                )}
-                {isEditingNames || isEditingWeights ? (
-                  <button
-                    type="button"
-                    onClick={() => { setIsEditingNames(false); setIsEditingWeights(false); }}
-                    className="chip text-xs flex items-center gap-1"
-                  >
-                    <Check className="w-3.5 h-3.5 text-[#15803D]" />
-                    <span>Listo</span>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => { setIsEditingNames(true); setIsEditingWeights(true); }}
-                    className="chip text-xs flex items-center gap-1"
-                  >
-                    <Edit2 className="w-3.5 h-3.5 text-[#D97706]" />
-                    <span>Editar</span>
-                  </button>
-                )}
-              </div>
+              <span className="text-[11px] font-semibold text-[#6E655F]">
+                Nombres y porcentajes configurados en la tarjeta de la materia
+              </span>
             </div>
 
             <div className="space-y-1">
@@ -491,12 +302,17 @@ export default function GradingView({
                 return (
                   <div key={item.key} className="cr group">
                     <label
-                      className="font-semibold text-sm sm:text-base text-[#2B2623] cursor-pointer"
+                      className="font-semibold text-sm sm:text-base text-[#2B2623]"
                     >
-                      {renderEditableLabel(item, isEditingNames)}
+                      {item.label}
                     </label>
 
-                    {renderEditableWeight(item, isEditingWeights)}
+                    <span
+                      className="bg font-semibold text-xs py-1 px-3 text-center flex items-center gap-1"
+                      style={{ background: "#FFF8E6", border: "2px solid #E3B866", borderRadius: "9999px" }}
+                    >
+                      {item.weight}% de la nota
+                    </span>
 
                     <div className="cb">
                       <GemProgressBar
@@ -506,7 +322,7 @@ export default function GradingView({
                       />
                     </div>
 
-                    <input 
+                    <input
                       id={`input-${item.key}`}
                       type="number"
                       min={0}
@@ -539,12 +355,17 @@ export default function GradingView({
                   <div key={item.key} className="cr group">
                     <label
                       htmlFor={`input-${item.key}`}
-                      className="font-semibold text-sm sm:text-base text-[#2B2623] cursor-pointer"
+                      className="font-semibold text-sm sm:text-base text-[#2B2623]"
                     >
                       {item.label}
                     </label>
 
-                    {renderEditableWeight(item, isEditingWeights)}
+                    <span
+                      className="bg font-semibold text-xs py-1 px-3 text-center flex items-center gap-1"
+                      style={{ background: "#FFF8E6", border: "2px solid #E3B866", borderRadius: "9999px" }}
+                    >
+                      {item.weight}% de la nota
+                    </span>
 
                     <div className="cb">
                       <GemProgressBar
@@ -554,7 +375,7 @@ export default function GradingView({
                       />
                     </div>
 
-                    <input 
+                    <input
                       id={`input-${item.key}`}
                       type="number"
                       min={0}

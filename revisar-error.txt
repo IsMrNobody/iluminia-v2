@@ -1,0 +1,92 @@
+¿Por qué aparecen 2190 “alumnos”?
+El número que ves en la UI no son clases, sino estudiantes (cada estudiante se renderiza como una tarjeta).  
+El origen del problema está en la función getTeacherClassesFromSupabase (línea ≈ 1180‑1275 en src/lib/supabase.ts).
+1. Qué devuelve realmente la función
+export async function getTeacherClassesFromSupabase(
+  materiaId: string,
+  teacherName: string = 1
+): Promise<ClassSection[]> {
+  …
+  return enrollmentsList.map((enr: any) => {
+    const a = alumnoMap[enr.alumno_id] || (Array.isArray(enr.alumnos) ? enr.alumnos[0] : enr.alumnos) || {};
+    const stdId = enr.alumno_id || a.id;
+    const grades = createEmptyGrades();
+
+    // …populate grades…
+    return {
+      id: stdId,
+      firstName: a.nombres || "Alumno",
+      // …
+      grades,
+    };
+  });
+}
+- El tipo declarado es Promise<ClassSection[]>, pero la función devuelve un array de objetos que representan a un estudiante (id, firstName, grades, …).  
+- En otras palabras, la función no devuelve clases, sino estudiantes.
+2. Cómo se usa la función
+En App.tsx (línea ≈ 245‑255) se hace:
+.then(() => getTeacherClassesFromSupabase(teacherIdentifier, teacher.name))
+.then((supaClasses) => {
+  const baseClasses = supaClasses && supaClasses.length > 0 ? supaClasses : localClasses;
+  // …merge… → setClasses(mergedClasses);
+});
+- supaClasses (el resultado de la función) se asigna a classes, cuyo tipo está declarado como ClassSection[].  
+- Como el tipo real es Student[], el UI recibe estudiantes donde debería recibir clases.  
+- El Dashboard / Class‑Overview / cualquier vista que itere classes trata cada estudiante como si fuera una clase, por eso aparecen 2190 “tarjetas” (alumnos) en vez de 170.
+3. Por qué el número es tan alto
+enrollmentsList contiene todos los registros de la tabla matriculas que cumplen con el filtro eq("materia_id", materiaId).  
+Si materiaId es, por ejemplo, el id del profesor (o una cadena vacía), la consulta devuelve todos los matriculados de la escuela, lo que puede ser varios miles de filas → 2190 estudiantes.
+4. Qué hay que corregir
+1. Corregir la firma y la lógica de getTeacherClassesFromSupabase.  
+- La función debería devolver clases (ClassSection[]) y cada clase debe contener su arreglo de estudiantes.  
+- Una forma sencilla (sin cambiar la arquitectura completa) es:
+// 1️⃣ Obtener las clases a las que el profesor pertenece
+const { data: teacherClasses } = await client
+  .from('profesores')               // o la tabla que relacione profesores ↔ clases
+  .select('class_id')
+  .eq('teacher_id', teacherIdentifier)   // o el campo que identifique al docente
+  .order('class_id');
+
+// 2️⃣ Para cada clase obtener sus estudiantes
+const classes = await Promise.all(
+  teacherClasses.map(async cl => {
+    const { data: enrollments } = await client
+      .from('matriculas')
+      .select('alumno_id')
+      .eq('class_id', cl.class_id)
+      .order('numero_lista');
+    // Convertir cada matrícula en un objeto Student (o en un ClassSection con su students[])
+    return {
+      id: cl.class_id,
+      subjectName: cl.subjectName,
+      gradeYear: cl.gradeYear,
+      sectionLetter: cl.sectionLetter,
+      department: cl.department,
+    };
+  })
+);
+return classes;
+
+- Si la intención era **solo obtener los estudiantes** (por ejemplo, para el Dashboard), entonces el tipo debería ser `Promise<Student[]>` y el UI tendría que renderizar esos objetos como estudiantes, no como clases.
+2. Eliminar la mezcla de datos locales y remotos (ya lo hiciste al eliminar el useEffect que leía de localStorage). Con la corrección anterior, classes será siempre el resultado limpio de getTeacherClassesFromSupabase.
+3. Verificar que el UI esté alineado con el tipo correcto  
+- Si después de corregir la función sigues usando classes como “clases”, asegúrate de que el UI espere ClassSection (con la propiedad students: Student[]).  
+- Si la intención es mostrar solo estudiantes, cambia el tipo del estado a Student[] y actualiza los componentes que iteran sobre classes para que muestren los datos de estudiante (por ejemplo, una lista de nombres en vez de una tarjeta de clase).
+5. Pasos concretos para arreglarlo
+1. Revisa la firma de la función en src/lib/supabase.ts y corrígela a Promise<Student[]> (o a ClassSection[] si realmente son clases).  
+2. Reescribe la lógica para que devuelva los objetos correctos (clases con sus estudiantes o solo estudiantes, según lo que necesite la UI).  
+3. Actualiza el tipo del estado en App.tsx:
+// Antes
+const [classes, setClasses] = useState<ClassSection[]>([]);
+// Después (si la función devuelve estudiantes)
+const [classes, setClasses] = useState<Student[]>([]);
+4. Ajusta los componentes que iteran sobre classes (DashboardView, ClassOverviewView, etc.) para que usen los campos correctos (students, subjectName, etc.) según el nuevo tipo.
+5. Prueba rápidamente:
+console.log('classes length:', classes.length);               // número de clases (debe ser ~10‑20)
+console.log('students total:', classes.reduce((s, c) => s + (c.students?.length || 0), 0));
+Deberías ver un número cercano a 170 (el total real de alumnos).
+6. Resumen rápido
+Problema	Causa	Solución
+2190 “alumnos” en la UI	getTeacherClassesFromSupabase devuelve estudiantes, no clases; el UI los trata como clases	Corregir la función para que devuelva clases (con su arreglo de estudiantes) o cambiar el tipo del estado y el UI para que esperen estudiantes
+Caché antiguo que inflaba el conteo	useEffect inicial leía localStorage y devolvía un arreglo grande	Eliminar ese useEffect (ya hecho) y asegurarse de que classes se inicialice como [] y se llene solo con la llamada correcta a Supabase
+Con la corrección del tipo y la lógica de getTeacherClassesFromSupabase el número de alumnos que se muestra será el real (≈ 170) y el localStorage ya no se “saturará”.  

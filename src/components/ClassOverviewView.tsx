@@ -16,6 +16,7 @@ import {
   Plus,
   Trash2,
   Edit3,
+  Edit2,
   Users,
   BookOpen,
   Check,
@@ -34,6 +35,7 @@ interface ClassOverviewViewProps {
   onDeleteStudent?: (studentId: string) => void;
   onSaveStudentGrades?: (studentId: string, updatedGrades: any) => void;
   onPendingChangesChange?: (hasChanges: boolean, saveFn: () => void) => void;
+  onUpdateSubjectEvaluations?: (subjectName: string, gradeYear: string, updatedLapsoContent: any) => void;
 }
 
 type FilterType = "TODOS" | "APROBADOS" | "APLAZADOS" | "PENDIENTES";
@@ -48,7 +50,8 @@ export default function ClassOverviewView({
   onAddStudent,
   onDeleteStudent,
   onSaveStudentGrades,
-  onPendingChangesChange
+  onPendingChangesChange,
+  onUpdateSubjectEvaluations
 }: ClassOverviewViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<FilterType>("TODOS");
@@ -211,6 +214,9 @@ export default function ClassOverviewView({
   // New states for evaluations view and batch grading
   const [activeViewMode, setActiveViewMode] = useState<"students" | "evaluations">("students");
   const [selectedEvaluationKey, setSelectedEvaluationKey] = useState<string | null>(null);
+  const [editingEvalKey, setEditingEvalKey] = useState<string | null>(null);
+  const [editEvalName, setEditEvalName] = useState("");
+  const [editEvalWeight, setEditEvalWeight] = useState(20);
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "instant" as ScrollBehavior });
@@ -257,6 +263,39 @@ export default function ClassOverviewView({
   ];
 
   const selectedEvaluationItem = evaluationItems.find(e => e.key === selectedEvaluationKey);
+
+  const handleUpdateEvaluationMeta = (evalKey: string, newName: string, newWeight: number) => {
+    let updatedLapso = JSON.parse(JSON.stringify(lapsoData));
+
+    if (updatedLapso.academic && updatedLapso.academic[evalKey]) {
+      updatedLapso.academic[evalKey].name = newName;
+      updatedLapso.academic[evalKey].weight = newWeight;
+    } else if (updatedLapso.ethical && updatedLapso.ethical[evalKey]) {
+      updatedLapso.ethical[evalKey].name = newName;
+      updatedLapso.ethical[evalKey].weight = newWeight;
+    }
+
+    if (onUpdateSubjectEvaluations) {
+      onUpdateSubjectEvaluations(section.subjectName, section.gradeYear, updatedLapso);
+    }
+
+    setLocalStudents(prev => prev.map(std => {
+      const currentStdGrades = std.grades || {};
+      const newGrades = {
+        1: currentStdGrades[1] ? JSON.parse(JSON.stringify(currentStdGrades[1])) : JSON.parse(JSON.stringify(updatedLapso)),
+        2: currentStdGrades[2] ? JSON.parse(JSON.stringify(currentStdGrades[2])) : JSON.parse(JSON.stringify(updatedLapso)),
+        3: currentStdGrades[3] ? JSON.parse(JSON.stringify(currentStdGrades[3])) : JSON.parse(JSON.stringify(updatedLapso)),
+        [activeLapsoNum]: updatedLapso
+      };
+
+      return {
+        ...std,
+        grades: newGrades
+      };
+    }));
+
+    setEditingEvalKey(null);
+  };
 
   const handleUpdateStudentEvalScore = (stdId: string, evalKey: string, scoreVal: string) => {
     const std = localStudents.find(s => s.id === stdId);
@@ -542,40 +581,103 @@ export default function ClassOverviewView({
                 return (
                   <div
                     key={ev.key}
-                    onClick={() => setSelectedEvaluationKey(ev.key)}
-                    className="bg-white border border-slate-200 rounded-2xl p-5 hover:border-amber-400 hover:shadow-md transition-all flex flex-col justify-between cursor-pointer group"
+                    onClick={() => {
+                      if (editingEvalKey !== ev.key) setSelectedEvaluationKey(ev.key);
+                    }}
+                    className="bg-white border border-slate-200 rounded-2xl p-5 hover:border-amber-400 hover:shadow-md transition-all flex flex-col justify-between cursor-pointer group relative"
                   >
-                    <div>
-                      <div className="flex items-start justify-between gap-2 mb-2">
-                        <span className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border ${
-                          ev.category === "Académica"
-                            ? "bg-blue-50 text-blue-700 border-blue-200"
-                            : "bg-purple-50 text-purple-700 border-purple-200"
-                        }`}>
-                          {ev.category} • {ev.weight}%
-                        </span>
-
-                        <span className="text-xs font-mono font-bold bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-lg">
-                          Prom: {avgEv}
-                        </span>
+                    {editingEvalKey === ev.key ? (
+                      <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-amber-600 uppercase">Editar evaluación</span>
+                          <span className="text-[10px] font-bold text-slate-400 uppercase">{ev.category}</span>
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Nombre</label>
+                          <input
+                            type="text"
+                            value={editEvalName}
+                            onChange={(e) => setEditEvalName(e.target.value)}
+                            className="w-full text-sm font-bold px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-amber-600"
+                            autoFocus
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Ponderación (%)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={editEvalWeight}
+                            onChange={(e) => setEditEvalWeight(parseInt(e.target.value) || 0)}
+                            className="w-full text-sm font-bold px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-amber-600"
+                          />
+                        </div>
+                        <div className="flex items-center justify-end gap-2 pt-2">
+                          <button
+                            onClick={() => setEditingEvalKey(null)}
+                            className="px-3 py-1.5 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            onClick={() => handleUpdateEvaluationMeta(ev.key, editEvalName, editEvalWeight)}
+                            className="px-3 py-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-xl transition flex items-center gap-1"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Guardar</span>
+                          </button>
+                        </div>
                       </div>
+                    ) : (
+                      <>
+                        <div>
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <span className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border ${
+                              ev.category === "Académica"
+                                ? "bg-blue-50 text-blue-700 border-blue-200"
+                                : "bg-purple-50 text-purple-700 border-purple-200"
+                            }`}>
+                              {ev.category} • {ev.weight}%
+                            </span>
 
-                      <h4 className="font-display text-lg text-slate-900 group-hover:text-amber-600 transition-colors">
-                        {ev.name}
-                      </h4>
-                      <p className="text-xs text-slate-500 mt-1 line-clamp-2">
-                        {ev.description || "Criterio de evaluación configurado para este lapso."}
-                      </p>
-                    </div>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingEvalKey(ev.key);
+                                  setEditEvalName(ev.name);
+                                  setEditEvalWeight(ev.weight);
+                                }}
+                                className="p-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg transition"
+                                title="Editar nombre y ponderación"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <span className="text-xs font-mono font-bold bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-lg">
+                                Prom: {avgEv}
+                              </span>
+                            </div>
+                          </div>
 
-                    <div className="flex items-center justify-between pt-4 mt-4 border-t border-slate-100">
-                      <span className="text-xs font-bold text-slate-600">
-                        Calificar sección
-                      </span>
-                      <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center group-hover:bg-amber-600 group-hover:text-white transition-colors">
-                        <ChevronRight className="w-4 h-4" />
-                      </div>
-                    </div>
+                          <h4 className="font-display text-lg text-slate-900 group-hover:text-amber-600 transition-colors">
+                            {ev.name}
+                          </h4>
+                          <p className="text-xs text-slate-500 mt-1 line-clamp-2">
+                            {ev.description || "Criterio de evaluación configurado para este lapso."}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center justify-between pt-4 mt-4 border-t border-slate-100">
+                          <span className="text-xs font-bold text-slate-600">
+                            Calificar sección
+                          </span>
+                          <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center group-hover:bg-amber-600 group-hover:text-white transition-colors">
+                            <ChevronRight className="w-4 h-4" />
+                          </div>
+                        </div>
+                      </>
+                    )}
                   </div>
                 );
               })}

@@ -3,24 +3,12 @@ import { getSupabaseClient, hashPassword, cleanAvatarUrl, encodeAvatarWithHash }
 import { createEmptyGrades } from "../mockData";
 import * as XLSX from "xlsx";
 
-const REGISTERED_STUDENTS_KEY = "ilumina_registered_students";
 const STUDENTS_METADATA_KEY = "ilumina_students_metadata";
 const TEACHERS_KEY = "ilumina_teachers_list";
 
 export function getStudentRealCedula(std: { id?: string; cedula?: string; firstName?: string; lastName?: string }): string {
   if (std?.cedula && !std.cedula.startsWith("std-") && !std.cedula.startsWith("reg-std-") && !std.cedula.includes("class-")) {
     return std.cedula;
-  }
-  if (typeof window !== "undefined") {
-    try {
-      const registered = JSON.parse(localStorage.getItem(REGISTERED_STUDENTS_KEY) || "[]");
-      const found = registered.find((r: any) =>
-        (r.firstName && std?.firstName && r.firstName.toLowerCase() === std.firstName.toLowerCase() &&
-         r.lastName && std?.lastName && r.lastName.toLowerCase() === std.lastName.toLowerCase()) ||
-        r.id === std?.id || r.cedula === std?.id
-      );
-      if (found?.cedula && !found.cedula.startsWith("std-")) return found.cedula;
-    } catch {}
   }
   if (std?.id && !std.id.startsWith("std-") && !std.id.startsWith("reg-std-") && !std.id.startsWith("class-")) {
     return std.id;
@@ -48,16 +36,7 @@ export function isMockStudent(student: { id?: string; cedula?: string }): boolea
 export function purgeMockStudents(): void {
   if (typeof window === "undefined") return;
   try {
-    const saved = localStorage.getItem(REGISTERED_STUDENTS_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed)) {
-        const cleaned = parsed.filter(s => !isMockStudent(s));
-        if (cleaned.length !== parsed.length) {
-          localStorage.setItem(REGISTERED_STUDENTS_KEY, JSON.stringify(cleaned));
-        }
-      }
-    }
+    localStorage.removeItem("ilumina_registered_students");
   } catch {}
 }
 
@@ -135,48 +114,77 @@ export function setTeacherAdminStatus(email: string, isAdmin: boolean) {
 }
 
 export function getRegisteredStudents(): RegisteredStudent[] {
-  if (typeof window === "undefined") return [];
-  purgeMockStudents();
-  try {
-    const saved = localStorage.getItem(REGISTERED_STUDENTS_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed)) {
-        return parsed.filter(s => !isMockStudent(s));
-      }
-    }
-  } catch (e) {
-    console.error("Error loading registered students:", e);
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.removeItem("ilumina_registered_students");
+    } catch {}
   }
   return [];
 }
 
-export function saveRegisteredStudent(student: RegisteredStudent): void {
-  if (typeof window === "undefined") return;
-  try {
-    const current = getRegisteredStudents();
-    const idx = current.findIndex(s => s.cedula === student.cedula || s.id === student.id);
-    if (idx >= 0) {
-      current[idx] = { ...current[idx], ...student };
-    } else {
-      current.unshift(student);
-    }
-    localStorage.setItem(REGISTERED_STUDENTS_KEY, JSON.stringify(current));
-    setStudentMetadata(student.cedula, { gradeYear: student.gradeYear, sectionLetter: student.sectionLetter });
-  } catch {}
+export function saveRegisteredStudent(student: Partial<RegisteredStudent> & { firstName: string; lastName: string; cedula: string; gradeYear: string; sectionLetter: string }): RegisteredStudent {
+  const fullStudent: RegisteredStudent = {
+    id: student.id || `reg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    firstName: student.firstName,
+    lastName: student.lastName,
+    cedula: student.cedula,
+    gradeYear: student.gradeYear,
+    sectionLetter: student.sectionLetter,
+    avatarUrl: student.avatarUrl || "",
+    createdAt: student.createdAt || new Date().toISOString(),
+    listNumber: student.listNumber || 1
+  };
+  setStudentMetadata(fullStudent.cedula, { gradeYear: fullStudent.gradeYear, sectionLetter: fullStudent.sectionLetter });
+  return fullStudent;
 }
 
 export function deleteRegisteredStudent(cedulaOrId: string): void {
-  if (typeof window === "undefined") return;
-  try {
-    const current = getRegisteredStudents();
-    const filtered = current.filter(s => s.cedula !== cedulaOrId && s.id !== cedulaOrId);
-    localStorage.setItem(REGISTERED_STUDENTS_KEY, JSON.stringify(filtered));
-  } catch {}
+  // no-op locally
 }
 
-export function syncRegisteredStudentsWithClasses(sections: ClassSection[]): void {
-  // no-op or sync helper
+export function syncRegisteredStudentsWithClasses(sections: ClassSection[]): { updatedClasses: ClassSection[]; addedCount: number } {
+  let addedCount = 0;
+  const updatedClasses = sections.map(section => {
+    const regStudents = getRegisteredStudentsForSection(section.gradeYear, section.sectionLetter);
+    if (regStudents.length === 0) return section;
+
+    const existingStudentMap = new Map<string, Student>();
+    section.students.forEach(s => {
+      existingStudentMap.set(s.id, s);
+      if (s.cedula) existingStudentMap.set(s.cedula, s);
+      existingStudentMap.set(`${s.firstName}_${s.lastName}`.toLowerCase(), s);
+    });
+
+    let sectionAdded = false;
+    const newStudents = [...section.students];
+
+    regStudents.forEach(reg => {
+      const key1 = reg.id;
+      const key2 = reg.cedula;
+      const key3 = `${reg.firstName}_${reg.lastName}`.toLowerCase();
+      if (!existingStudentMap.has(key1) && !existingStudentMap.has(key2) && !existingStudentMap.has(key3)) {
+        newStudents.push({
+          id: reg.id,
+          cedula: reg.cedula,
+          firstName: reg.firstName,
+          lastName: reg.lastName,
+          avatarUrl: reg.avatarUrl,
+          grades: createEmptyGrades(),
+          attendanceRate: 100,
+          hasSubmittedLastQuiz: false,
+        });
+        addedCount++;
+        sectionAdded = true;
+      }
+    });
+
+    if (sectionAdded) {
+      return { ...section, students: newStudents };
+    }
+    return section;
+  });
+
+  return { updatedClasses, addedCount };
 }
 
 export function formatGradeYear(yr?: string): string {
@@ -291,13 +299,15 @@ export async function fetchStudentCountsByYear(): Promise<Record<string, number>
 }
 
 export async function fetchRegisteredStudentsFromDatabase(selectedYear?: string): Promise<RegisteredStudent[]> {
-  purgeMockStudents();
   const client: any = getSupabaseClient();
   const targetYearStr = typeof selectedYear === "string" ? selectedYear.trim() : "";
   const isFilteringYear = !!targetYearStr && targetYearStr !== "ALL";
 
-  let supaAlumnos: any[] = [];
-  let fetchSuccessful = false;
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.removeItem("ilumina_registered_students");
+    } catch {}
+  }
 
   try {
     const res = await client
@@ -306,75 +316,42 @@ export async function fetchRegisteredStudentsFromDatabase(selectedYear?: string)
       .order("list_number", { ascending: true, nullsFirst: false });
 
     if (!res.error && res.data) {
-      supaAlumnos = res.data;
-      fetchSuccessful = true;
-      if (typeof window !== "undefined") {
-        sessionStorage.setItem("ilumina_students_queried", "true");
+      const mappedSupa: RegisteredStudent[] = (res.data || []).map((row: any) => {
+        const meta = extractStudentMetadata(row);
+        return {
+          id: row.id || row.cedula,
+          cedula: row.cedula || row.id,
+          firstName: row.nombres || row.firstName || "",
+          lastName: row.apellidos || row.lastName || "",
+          gradeYear: meta.gradeYear,
+          sectionLetter: meta.sectionLetter,
+          avatarUrl: cleanAvatarUrl(row.avatar_url || row.avatarUrl || ""),
+          createdAt: row.created_at || row.createdAt || new Date().toISOString(),
+          listNumber: row.list_number || 0
+        };
+      });
+
+      const filtered = mappedSupa.filter(s => !isMockStudent(s)).sort((a: any, b: any) => {
+        const lnA = a.listNumber !== undefined ? a.listNumber : 999999;
+        const lnB = b.listNumber !== undefined ? b.listNumber : 999999;
+        if (lnA !== lnB) return lnA - lnB;
+        const tA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const tB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return tA - tB;
+      });
+
+      if (isFilteringYear) {
+        const normTarget = normalizeYear(targetYearStr);
+        return filtered.filter(s => normalizeYear(s.gradeYear) === normTarget);
       }
+
+      return filtered;
     }
   } catch (err) {
-    console.warn("Supabase fetch exception:", err);
+    console.warn("Supabase fetch exception for alumnos:", err);
   }
 
-  const localStudents = getRegisteredStudents();
-
-  if (fetchSuccessful) {
-    const mappedSupa: RegisteredStudent[] = (supaAlumnos || []).map((row: any) => {
-      const meta = extractStudentMetadata(row);
-      return {
-        id: row.id || row.cedula,
-        cedula: row.cedula || row.id,
-        firstName: row.nombres || row.firstName || "",
-        lastName: row.apellidos || row.lastName || "",
-        gradeYear: meta.gradeYear,
-        sectionLetter: meta.sectionLetter,
-        avatarUrl: cleanAvatarUrl(row.avatar_url || row.avatarUrl || ""),
-        createdAt: row.created_at || row.createdAt || new Date().toISOString(),
-        listNumber: row.list_number || 0
-      };
-    });
-
-    const map = new Map<string, RegisteredStudent>();
-    const getUniqueKey = (s: any) => (s.cedula && s.cedula !== "C.I. Pendiente") ? s.cedula : `${s.lastName || ""}_${s.firstName || ""}_${s.gradeYear || ""}_${s.sectionLetter || ""}`;
-
-    mappedSupa.forEach(s => {
-      map.set(getUniqueKey(s), s);
-      setStudentMetadata(s.cedula, { gradeYear: s.gradeYear, sectionLetter: s.sectionLetter });
-    });
-
-    localStudents.forEach(s => {
-      if (!map.has(getUniqueKey(s))) {
-        map.set(getUniqueKey(s), s);
-      }
-    });
-
-    const allCombined = Array.from(map.values()).filter(s => !isMockStudent(s)).sort((a: any, b: any) => {
-      const lnA = a.listNumber !== undefined ? a.listNumber : 999999;
-      const lnB = b.listNumber !== undefined ? b.listNumber : 999999;
-      if (lnA !== lnB) return lnA - lnB;
-      const tA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-      const tB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      return tA - tB;
-    });
-
-    if (typeof window !== "undefined") {
-      localStorage.setItem(REGISTERED_STUDENTS_KEY, JSON.stringify(allCombined));
-    }
-
-    if (isFilteringYear) {
-      const normTarget = normalizeYear(targetYearStr);
-      return allCombined.filter(s => normalizeYear(s.gradeYear) === normTarget);
-    }
-
-    return allCombined;
-  } else {
-    console.warn("Falling back to local storage for registered students");
-    if (isFilteringYear) {
-      const normTarget = normalizeYear(targetYearStr);
-      return localStudents.filter(s => normalizeYear(s.gradeYear) === normTarget);
-    }
-    return localStudents;
-  }
+  return [];
 }
 
 export async function registerStudentInDatabase(student: Omit<RegisteredStudent, "createdAt">): Promise<boolean> {
@@ -521,15 +498,7 @@ export function importStudentsFromFile(file: File): Promise<{ success: boolean; 
           return;
         }
 
-        const current = getRegisteredStudents();
-        const map = new Map<string, RegisteredStudent>();
-        const getUniqueKey = (s: any) => (s.cedula && s.cedula !== "C.I. Pendiente") ? s.cedula : `${s.lastName || ""}_${s.firstName || ""}_${s.gradeYear || ""}_${s.sectionLetter || ""}`;
-        current.forEach(s => map.set(getUniqueKey(s), s));
-        imported.forEach(s => map.set(getUniqueKey(s), s));
-        const merged = Array.from(map.values());
-
         if (typeof window !== "undefined") {
-          localStorage.setItem(REGISTERED_STUDENTS_KEY, JSON.stringify(merged));
           imported.forEach(s => {
             setStudentMetadata(s.cedula, { gradeYear: s.gradeYear, sectionLetter: s.sectionLetter });
           });
@@ -611,34 +580,61 @@ export function getAllTeachers(): TeacherProfile[] {
   return [];
 }
 
-export function createTeacherByAdmin(teacher: TeacherProfile): void {
-  if (typeof window === "undefined") return;
+export function createTeacherByAdmin(teacher: Partial<TeacherProfile> & { name: string; email: string; password?: string }): { success: boolean; message: string } {
+  if (typeof window === "undefined") return { success: false, message: "No window" };
   try {
     const teachers = getAllTeachers();
-    teachers.push(teacher);
-    localStorage.setItem(TEACHERS_KEY, JSON.stringify(teachers));
-  } catch {}
-}
-
-export function updateTeacherByAdmin(email: string, updates: Partial<TeacherProfile>): void {
-  if (typeof window === "undefined") return;
-  try {
-    const teachers = getAllTeachers();
-    const idx = teachers.findIndex(t => t.email.toLowerCase() === email.toLowerCase());
-    if (idx >= 0) {
-      teachers[idx] = { ...teachers[idx], ...updates };
-      localStorage.setItem(TEACHERS_KEY, JSON.stringify(teachers));
+    if (teachers.some(t => t.email.toLowerCase() === teacher.email.toLowerCase())) {
+      return { success: false, message: "Ya existe un docente con este correo." };
     }
-  } catch {}
+    const fullTeacher: TeacherProfile = {
+      name: teacher.name,
+      email: teacher.email,
+      department: teacher.department || "Dpto. General",
+      rank: teacher.rank || "Profesor",
+      status: teacher.status || "ACTIVO",
+      avatarUrl: teacher.avatarUrl || "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150",
+      totalStudents: teacher.totalStudents || 0,
+      totalStudentsGrowthPercent: teacher.totalStudentsGrowthPercent || 0,
+      averagePerformance: teacher.averagePerformance || 18,
+      termProgressPercent: teacher.termProgressPercent || 50,
+      schoolYear: teacher.schoolYear || getCurrentSchoolYear(),
+      isAdmin: teacher.isAdmin || false,
+    };
+    teachers.push(fullTeacher);
+    localStorage.setItem(TEACHERS_KEY, JSON.stringify(teachers));
+    return { success: true, message: `Docente ${teacher.name} creado exitosamente.` };
+  } catch (err: any) {
+    return { success: false, message: err?.message || "Error al crear docente" };
+  }
 }
 
-export function deleteTeacherByAdmin(email: string): void {
-  if (typeof window === "undefined") return;
+export function updateTeacherByAdmin(teacher: TeacherProfile, newPassword?: string): { success: boolean; message: string } {
+  if (typeof window === "undefined") return { success: false, message: "No window" };
   try {
     const teachers = getAllTeachers();
-    const filtered = teachers.filter(t => t.email.toLowerCase() !== email.toLowerCase());
+    const idx = teachers.findIndex(t => t.email.toLowerCase() === teacher.email.toLowerCase());
+    if (idx >= 0) {
+      teachers[idx] = { ...teachers[idx], ...teacher };
+      localStorage.setItem(TEACHERS_KEY, JSON.stringify(teachers));
+      return { success: true, message: `Docente ${teacher.name} actualizado exitosamente.` };
+    }
+    return { success: false, message: "Docente no encontrado." };
+  } catch (err: any) {
+    return { success: false, message: err?.message || "Error al actualizar docente" };
+  }
+}
+
+export function deleteTeacherByAdmin(emailOrId: string): { success: boolean; message: string } {
+  if (typeof window === "undefined") return { success: false, message: "No window" };
+  try {
+    const teachers = getAllTeachers();
+    const filtered = teachers.filter(t => t.email.toLowerCase() !== emailOrId.toLowerCase() && t.id !== emailOrId);
     localStorage.setItem(TEACHERS_KEY, JSON.stringify(filtered));
-  } catch {}
+    return { success: true, message: "Docente eliminado exitosamente." };
+  } catch (err: any) {
+    return { success: false, message: err?.message || "Error al eliminar docente" };
+  }
 }
 
 export function getRegisteredStudentsForSection(gradeYear: string, sectionLetter: string): RegisteredStudent[] {

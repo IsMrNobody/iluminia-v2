@@ -1,22 +1,23 @@
-import React, { useState } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { SubjectGroup, ClassSection } from "../types";
 import { getWeightedFinalScore } from "../mockData";
 import { getCurrentSchoolYear } from "../lib/adminService";
 import { getSubjectTheme } from "../utils/subjectThemes";
-import { 
-  ArrowLeft, 
-  Users, 
-  BookOpen, 
-  Check, 
-  TrendingUp, 
-  Award, 
-  Plus, 
-  ChevronRight, 
+import {
+  ArrowLeft,
+  Users,
+  BookOpen,
+  Check,
+  TrendingUp,
+  Award,
+  Plus,
+  ChevronRight,
   GraduationCap,
   Sparkles,
   School,
   Layers,
-  Trash2
+  Trash2,
+  Edit2
 } from "lucide-react";
 import { motion } from "motion/react";
 
@@ -29,6 +30,8 @@ interface SubjectSectionsViewProps {
   onSelectSection: (sectionId: string) => void;
   onAddNewSection?: (sectionLetter: string) => void;
   onDeleteSection?: (sectionId: string) => void;
+  onUpdateSubjectEvaluations?: (subjectName: string, gradeYear: string, updatedLapsoContent: any) => void;
+  activeLapso?: 1 | 2 | 3;
 }
 
 export default function SubjectSectionsView({
@@ -39,11 +42,56 @@ export default function SubjectSectionsView({
   onBack,
   onSelectSection,
   onAddNewSection,
-  onDeleteSection
+  onDeleteSection,
+  onUpdateSubjectEvaluations,
+  activeLapso = 1
 }: SubjectSectionsViewProps) {
   const [isAddSectionModalOpen, setIsAddSectionModalOpen] = useState(false);
   const [newSectionLetter, setNewSectionLetter] = useState("");
   const [sectionToDelete, setSectionToDelete] = useState<ClassSection | null>(null);
+
+  const activeLapsoNum = activeLapso || subjectGroup.lapso || 1;
+  const sampleStudent = subjectGroup.sections.flatMap(s => s.students || [])[0];
+  const defaultLapso = {
+    academic: {
+      homework: { id: "hw", name: "Hoja de tarea", weight: 20, description: "Comprensión conceptual y precisión." },
+      talentShow: { id: "ts", name: "Muestra de talentos", weight: 20, description: "Demostración práctica de habilidades." },
+      assembly: { id: "asm", name: "Montaje", weight: 20, description: "Estructura y coherencia del proyecto." },
+      essay: { id: "esy", name: "Ensayo", weight: 20, description: "Calidad y síntesis escrita." },
+      performance: { id: "prf", name: "Puesta en escena", weight: 10, description: "Presentación final y expresión." },
+    },
+    ethical: {
+      responsibility: { id: "resp", name: "Responsabilidad", weight: 5, description: "Entrega a tiempo y compromiso." },
+      personalCare: { id: "pc", name: "Presentación", weight: 5, description: "Cumplimiento del orden y presentación." },
+    }
+  };
+  const sampleGrades = sampleStudent?.grades?.[activeLapsoNum] || sampleStudent?.grades?.[1];
+  const currentLapsoContent = sampleGrades || defaultLapso;
+
+  const [isEditingEvals, setIsEditingEvals] = useState(false);
+  const [editableLapso, setEditableLapso] = useState(() => JSON.parse(JSON.stringify(currentLapsoContent)));
+
+  useEffect(() => {
+    const freshStudent = subjectGroup.sections.flatMap(s => s.students || [])[0];
+    const freshGrades = freshStudent?.grades?.[activeLapsoNum] || freshStudent?.grades?.[1] || defaultLapso;
+    setEditableLapso(JSON.parse(JSON.stringify(freshGrades)));
+  }, [subjectGroup, activeLapsoNum]);
+
+  const totalAcademicWeight = useMemo(() => {
+    const ac = editableLapso.academic || {};
+    return (Number(ac.homework?.weight) || 0) +
+           (Number(ac.talentShow?.weight) || 0) +
+           (Number(ac.assembly?.weight) || 0) +
+           (Number(ac.essay?.weight) || 0) +
+           (Number(ac.performance?.weight) || 0);
+  }, [editableLapso]);
+
+  const handleSaveEvaluations = () => {
+    if (onUpdateSubjectEvaluations) {
+      onUpdateSubjectEvaluations(subjectGroup.subjectName, subjectGroup.gradeYear, editableLapso);
+    }
+    setIsEditingEvals(false);
+  };
 
   const existingLetters = subjectGroup.sections.map(s => s.sectionLetter.toUpperCase());
   const suggestedLetters = ["A", "B", "C", "D", "E", "F", "U"].filter(l => !existingLetters.includes(l));
@@ -210,6 +258,186 @@ export default function SubjectSectionsView({
           <span className="text-[10px] text-slate-500 font-medium">
             {getCurrentSchoolYear()}
           </span>
+        </div>
+      </div>
+
+      {/* Subject Evaluations Configuration Card */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-200 shrink-0">
+              <BookOpen className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-display text-lg text-slate-900">
+                Evaluaciones de la Materia (Lapso {activeLapsoNum})
+              </h3>
+              <p className="text-xs text-slate-500">
+                Configura los nombres y porcentajes que se aplicarán unificadamente a todas las secciones de esta asignatura.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 flex-wrap">
+            {isEditingEvals ? (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`text-xs font-bold px-2.5 py-1 rounded-xl ${
+                  totalAcademicWeight === 100 ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-rose-50 text-rose-700 border border-rose-200"
+                }`}>
+                  Total Académico: {totalAcademicWeight}% {totalAcademicWeight !== 100 && "(Debe ser 100%)"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsEditingEvals(false)}
+                  className="px-3.5 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveEvaluations}
+                  className="px-4 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-xl transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Guardar Cambios</span>
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsEditingEvals(true)}
+                className="px-4 py-2 text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <Edit2 className="w-4 h-4" />
+                <span>Editar Evaluaciones</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Academic & Ethical Evaluations List */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {/* Academic */}
+          <div className="space-y-2">
+            <h4 className="text-xs font-extrabold uppercase text-slate-400 tracking-wider">Criterios Académicos (80%)</h4>
+            {Object.entries(editableLapso.academic || {}).map(([key, item]: [string, any]) => (
+              <div key={key} className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 flex items-center justify-between gap-3">
+                {isEditingEvals ? (
+                  <>
+                    <div className="flex-1 space-y-1">
+                      <input
+                        type="text"
+                        value={item.name}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setEditableLapso((prev: any) => ({
+                            ...prev,
+                            academic: {
+                              ...prev.academic,
+                              [key]: { ...prev.academic[key], name: val }
+                            }
+                          }));
+                        }}
+                        className="w-full text-xs font-bold px-2.5 py-1 bg-white border border-slate-200 rounded-lg focus:outline-amber-600"
+                        placeholder="Nombre de evaluación"
+                      />
+                    </div>
+                    <div className="w-24 shrink-0 flex items-center gap-1">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={item.weight}
+                        onChange={(e) => {
+                          const w = parseInt(e.target.value) || 0;
+                          setEditableLapso((prev: any) => ({
+                            ...prev,
+                            academic: {
+                              ...prev.academic,
+                              [key]: { ...prev.academic[key], weight: w }
+                            }
+                          }));
+                        }}
+                        className="w-16 text-center text-xs font-bold px-2 py-1 bg-white border border-slate-200 rounded-lg focus:outline-amber-600 font-mono"
+                      />
+                      <span className="text-xs font-bold text-slate-500">%</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="min-w-0">
+                      <span className="text-xs font-extrabold text-slate-900 block truncate">{item.name}</span>
+                      <span className="text-[10px] text-slate-500 truncate block">{item.description || "Criterio académico"}</span>
+                    </div>
+                    <span className="text-xs font-black font-mono bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-1 rounded-lg shrink-0">
+                      {item.weight}% de la nota
+                    </span>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Ethical */}
+          <div className="space-y-2">
+            <h4 className="text-xs font-extrabold uppercase text-slate-400 tracking-wider">Criterios Éticos y Formativos (20%)</h4>
+            {Object.entries(editableLapso.ethical || {}).map(([key, item]: [string, any]) => (
+              <div key={key} className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 flex items-center justify-between gap-3">
+                {isEditingEvals ? (
+                  <>
+                    <div className="flex-1 space-y-1">
+                      <input
+                        type="text"
+                        value={item.name}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setEditableLapso((prev: any) => ({
+                            ...prev,
+                            ethical: {
+                              ...prev.ethical,
+                              [key]: { ...prev.ethical[key], name: val }
+                            }
+                          }));
+                        }}
+                        className="w-full text-xs font-bold px-2.5 py-1 bg-white border border-slate-200 rounded-lg focus:outline-amber-600"
+                        placeholder="Nombre ético"
+                      />
+                    </div>
+                    <div className="w-24 shrink-0 flex items-center gap-1">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={item.weight}
+                        onChange={(e) => {
+                          const w = parseInt(e.target.value) || 0;
+                          setEditableLapso((prev: any) => ({
+                            ...prev,
+                            ethical: {
+                              ...prev.ethical,
+                              [key]: { ...prev.ethical[key], weight: w }
+                            }
+                          }));
+                        }}
+                        className="w-16 text-center text-xs font-bold px-2 py-1 bg-white border border-slate-200 rounded-lg focus:outline-amber-600 font-mono"
+                      />
+                      <span className="text-xs font-bold text-slate-500">%</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="min-w-0">
+                      <span className="text-xs font-extrabold text-slate-900 block truncate">{item.name}</span>
+                      <span className="text-[10px] text-slate-500 truncate block">{item.description || "Criterio formativo"}</span>
+                    </div>
+                    <span className="text-xs font-black font-mono bg-purple-50 text-purple-700 border border-purple-200 px-2.5 py-1 rounded-lg shrink-0">
+                      {item.weight}% de la nota
+                    </span>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
