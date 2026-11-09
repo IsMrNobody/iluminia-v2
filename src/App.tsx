@@ -1153,23 +1153,6 @@ export default function App() {
             alt="Ilumina"
             className="object-contain drop-shadow-[0_2px_0_rgba(0,0,0,0.25)] h-9 max-w-[190px]"
           />
-          {/* Descargar Hoja de Actuación (móvil): icono a la derecha del logo */}
-          {currentClass && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                downloadHojaActuacion({
-                  sections: siblingSections,
-                  teacherName: teacher.name
-                });
-              }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-2"
-              aria-label="Descargar hoja de actuación"
-              title="Descargar hoja de actuación y notas en plantilla Excel"
-            >
-              <Download className="w-5 h-5 text-[#F6E7C8]" />
-            </button>
-          )}
         </div>
 
         {/* Desktop icon logo */}

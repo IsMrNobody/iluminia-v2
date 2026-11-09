@@ -368,7 +368,7 @@ export default function ClassOverviewView({
         {/* Toggle Modo: Evaluaciones / Alumnos — oculto cuando se está dentro de una evaluación */}
         {!(activeViewMode === "evaluations" && selectedEvaluationKey) && (
         <div
-          className="fixed md:static right-6 bottom-40 md:top-[100px] z-50 flex flex-col items-center gap-1"
+          className="fixed right-6 bottom-40 z-50 flex flex-col items-center gap-1"
         >
           <button
             onClick={() => {
