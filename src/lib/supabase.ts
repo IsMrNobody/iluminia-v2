@@ -854,6 +854,63 @@ export async function getTeacherClassesFromSupabase(
   }
 }
 
+// Save attendance strictly to Supabase without local storage caching
+export async function saveAttendanceToSupabase(
+  materiaId: string,
+  fecha: string, // YYYY-MM-DD
+  entries: Array<{ alumnoId: string; presente: boolean }>
+): Promise<{ success: boolean; message: string }> {
+  const client: any = getSupabaseClient();
+  try {
+    const rows = entries.map(e => ({
+      materia_id: materiaId,
+      alumno_id: e.alumnoId,
+      fecha: fecha,
+      presente: e.presente,
+    }));
+
+    const { error } = await client
+      .from("asistencias")
+      .upsert(rows, { onConflict: "materia_id,alumno_id,fecha" });
+
+    if (error) throw error;
+
+    return { success: true, message: "Asistencia guardada exitosamente en Supabase." };
+  } catch (err: any) {
+    console.error("Error saving attendance to Supabase:", err);
+    return { success: false, message: err?.message || "Error al guardar en Supabase." };
+  }
+}
+
+// Fetch attendance strictly from Supabase without local storage caching
+export async function fetchAttendanceFromSupabase(
+  materiaId: string,
+  fecha: string
+): Promise<Array<{ alumnoId: string; presente: boolean }>> {
+  const client: any = getSupabaseClient();
+  try {
+    const { data, error } = await client
+      .from("asistencias")
+      .select("alumno_id, presente")
+      .eq("materia_id", materiaId)
+      .eq("fecha", fecha);
+
+    if (error) {
+      console.error("Error fetching attendance from Supabase:", error);
+      return [];
+    }
+    if (!data) return [];
+
+    return data.map((d: any) => ({
+      alumnoId: d.alumno_id,
+      presente: d.presente,
+    }));
+  } catch (err) {
+    console.error("Error fetching attendance from Supabase:", err);
+    return [];
+  }
+}
+
 // Strict & Secure Login for teacher using direct database validation & SHA-256 hash checks
 export async function loginTeacherWithSupabase(email: string, password?: string): Promise<{
   success: boolean;

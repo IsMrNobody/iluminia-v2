@@ -35,6 +35,8 @@ interface ClassOverviewViewProps {
   onSaveStudentsGradesBatch?: (entries: Array<{ studentId: string; grades: any }>) => void;
   onPendingChangesChange?: (hasChanges: boolean, saveFn: () => void) => void;
   onUpdateSubjectEvaluations?: (subjectName: string, gradeYear: string, updatedLapsoContent: any) => void;
+  onSaveAttendance?: (materiaId: string, fecha: string, entries: Array<{ alumnoId: string; presente: boolean }>) => void;
+  onFetchAttendance?: (materiaId: string, fecha: string) => Promise<Array<{ alumnoId: string; presente: boolean }>>;
 }
 
 type FilterType = "TODOS" | "APROBADOS" | "APLAZADOS" | "PENDIENTES";
@@ -51,7 +53,9 @@ export default function ClassOverviewView({
   onSaveStudentGrades,
   onSaveStudentsGradesBatch,
   onPendingChangesChange,
-  onUpdateSubjectEvaluations
+  onUpdateSubjectEvaluations,
+  onSaveAttendance,
+  onFetchAttendance
 }: ClassOverviewViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<FilterType>("TODOS");
@@ -129,12 +133,50 @@ export default function ClassOverviewView({
     onSelectStudent(stdId);
   };
 
-  // New states for evaluations view and batch grading
-  const [activeViewMode, setActiveViewMode] = useState<"students" | "evaluations">("students");
+  // New states for evaluations view, attendance and batch grading
+  const [activeViewMode, setActiveViewMode] = useState<"students" | "evaluations" | "attendance">("students");
+  const [attendanceDate, setAttendanceDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [attendanceMap, setAttendanceMap] = useState<Record<string, boolean>>({});
   const [selectedEvaluationKey, setSelectedEvaluationKey] = useState<string | null>(null);
   const [editingEvalKey, setEditingEvalKey] = useState<string | null>(null);
   const [editEvalName, setEditEvalName] = useState("");
   const [editEvalWeight, setEditEvalWeight] = useState(20);
+
+  useEffect(() => {
+    if (activeViewMode === "attendance" && section.id) {
+      if (onFetchAttendance) {
+        onFetchAttendance(section.id, attendanceDate).then((records) => {
+          const map: Record<string, boolean> = {};
+          localStudents.forEach(s => {
+            map[s.id] = true;
+          });
+          records.forEach(r => {
+            map[r.alumnoId] = r.presente;
+          });
+          setAttendanceMap(map);
+        });
+      } else {
+        const map: Record<string, boolean> = {};
+        localStudents.forEach(s => {
+          map[s.id] = attendanceMap[s.id] ?? true;
+        });
+        setAttendanceMap(map);
+      }
+    }
+  }, [activeViewMode, attendanceDate, section.id]);
+
+  const handleToggleAttendance = (studentId: string) => {
+    setAttendanceMap(prev => {
+      const current = prev[studentId] ?? true;
+      const nextPresente = !current;
+      const nextMap = { ...prev, [studentId]: nextPresente };
+      if (onSaveAttendance) {
+        // Save only the toggled student to minimize data transfer and operations
+        onSaveAttendance(section.id, attendanceDate, [{ alumnoId: studentId, presente: nextPresente }]);
+      }
+      return nextMap;
+    });
+  };
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "instant" as ScrollBehavior });
@@ -363,27 +405,45 @@ export default function ClassOverviewView({
         </>
       )}
 
-      {/* CONDITIONAL VIEWS: Students vs Evaluations vs Batch Grading */}
+      {/* CONDITIONAL VIEWS: Students vs Evaluations vs Attendance */}
       <div style={{ position: "relative" }}>
-        {/* Toggle Modo: Evaluaciones / Alumnos — oculto cuando se está dentro de una evaluación */}
+        {/* Toggle Modo: Alumnos / Evaluaciones / Asistencias — oculto cuando se está dentro de una evaluación */}
         {!(activeViewMode === "evaluations" && selectedEvaluationKey) && (
         <div
           className="fixed right-6 bottom-40 z-50 flex flex-col items-center gap-1"
         >
           <button
             onClick={() => {
-              setActiveViewMode(activeViewMode === "students" ? "evaluations" : "students");
-              setSelectedEvaluationKey(null);
+              if (activeViewMode === "students") {
+                setActiveViewMode("evaluations");
+                setSelectedEvaluationKey(null);
+              } else if (activeViewMode === "evaluations") {
+                setActiveViewMode("attendance");
+                setSelectedEvaluationKey(null);
+              } else {
+                setActiveViewMode("students");
+                setSelectedEvaluationKey(null);
+              }
             }}
             className={`w-14 h-14 rounded-full border-2 border-[#7A4B2A] shadow-[0_4px_0_#7A4B2A] flex items-center justify-center transition-all cursor-pointer hover:translate-y-[-2px] active:translate-y-[2px] ${
-              activeViewMode === "evaluations"
+              activeViewMode === "attendance"
+                ? "bg-gradient-to-br from-[#FEF3C7] to-[#FDE68A] shadow-[0_4px_0_#D97706] hover:shadow-[0_6px_0_#D97706] active:shadow-[0_2px_0_#D97706] border-[#D97706] text-[#78350F]"
+                : activeViewMode === "evaluations"
                 ? "bg-gradient-to-br from-[#E0E7FF] to-[#C7D2FE] shadow-[0_4px_0_#4338CA] hover:shadow-[0_6px_0_#4338CA] active:shadow-[0_2px_0_#4338CA] border-[#4338CA] text-[#312E81]"
                 : "bg-gradient-to-br from-[#F4DFA6] to-[#E3B866] shadow-[0_4px_0_#7A4B2A] hover:shadow-[0_6px_0_#7A4B2A] active:shadow-[0_2px_0_#7A4B2A] border-[#7A4B2A] text-[#3E2514]"
             }`}
-            title={activeViewMode === "evaluations" ? "Estás en modo Evaluaciones — clic para ver Alumnos" : "Estás en modo Alumnos — clic para ver Evaluaciones"}
-            aria-pressed={activeViewMode === "evaluations"}
+            title={
+              activeViewMode === "students"
+                ? "Modo Alumnos — clic para ver Evaluaciones"
+                : activeViewMode === "evaluations"
+                ? "Modo Evaluaciones — clic para ver Asistencias"
+                : "Modo Asistencias — clic para ver Alumnos"
+            }
+            aria-pressed={true}
           >
-            {activeViewMode === "evaluations" ? (
+            {activeViewMode === "attendance" ? (
+              <Users className="w-6 h-6" />
+            ) : activeViewMode === "evaluations" ? (
               <SpriteObject name="birrete" size={32} />
             ) : (
               <SpriteObject name="libroabierto" size={32} />
@@ -392,7 +452,116 @@ export default function ClassOverviewView({
         </div>
         )}
 
-        {activeViewMode === "evaluations" ? (
+        {activeViewMode === "attendance" ? (
+          /* ATTENDANCE MODE VIEW */
+          <div className="space-y-6">
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center font-bold">
+                    <Users className="w-5 h-5 text-amber-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-display text-lg text-slate-900">
+                      Control de Asistencia • Sección {section.sectionLetter}
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      {section.subjectName} • {section.gradeYear} • <strong className="text-slate-800 capitalize">
+                        {new Date(attendanceDate + "T00:00:00").toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                      </strong>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <label className="text-xs font-bold text-slate-600 uppercase flex items-center gap-2">
+                    <span>Fecha:</span>
+                    <input
+                      type="date"
+                      value={attendanceDate}
+                      onChange={(e) => setAttendanceDate(e.target.value)}
+                      className="text-xs font-bold px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-blue-600 font-mono"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* Attendance Stats */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-center">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Total Alumnos</span>
+                  <strong className="text-lg font-black text-slate-900 font-mono">{localStudents.length}</strong>
+                </div>
+                <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-100 text-center">
+                  <span className="text-[10px] font-bold text-emerald-600 uppercase block">Presentes</span>
+                  <strong className="text-lg font-black text-emerald-700 font-mono">
+                    {localStudents.filter(s => attendanceMap[s.id] !== false).length}
+                  </strong>
+                </div>
+                <div className="bg-rose-50 p-3 rounded-xl border border-rose-100 text-center">
+                  <span className="text-[10px] font-bold text-rose-500 uppercase block">Inasistentes</span>
+                  <strong className="text-lg font-black text-rose-600 font-mono">
+                    {localStudents.filter(s => attendanceMap[s.id] === false).length}
+                  </strong>
+                </div>
+              </div>
+            </div>
+
+            {/* Students List maintaining the same numbered format with highlighted absent students */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {localStudents.map((std, idx) => {
+                const isPresent = attendanceMap[std.id] !== false;
+                return (
+                  <div
+                    key={std.id}
+                    onClick={() => handleToggleAttendance(std.id)}
+                    className={`border rounded-2xl p-4 flex items-center justify-between gap-3 cursor-pointer transition-all shadow-xs ${
+                      isPresent
+                        ? "bg-white border-slate-200 hover:border-slate-300"
+                        : "bg-rose-50/90 border-rose-300 shadow-rose-100/50"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm shrink-0 font-mono ${
+                        isPresent
+                          ? "bg-amber-100 text-amber-800 border border-amber-200"
+                          : "bg-rose-600 text-white shadow-sm"
+                      }`}>
+                        {idx + 1}
+                      </div>
+
+                      <PolaroidAvatar avatarUrl={std.avatarUrl} alt={`${std.firstName} ${std.lastName}`} size={42} />
+
+                      <div className="min-w-0">
+                        <h4 className="font-display text-sm text-slate-900 truncate">
+                          {std.firstName} {std.lastName}
+                        </h4>
+                        <p className="text-[11px] text-slate-500 font-mono truncate">
+                          {(() => {
+                            const realC = getStudentRealCedula(std);
+                            return realC ? (realC.startsWith("V-") || realC.startsWith("E-") ? realC : `C.I. ${realC}`) : "C.I. Pendiente";
+                          })()}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="shrink-0 flex items-center gap-2">
+                      {isPresent ? (
+                        <span className="text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                          Presente
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-full bg-rose-600 text-white shadow-xs">
+                          Inasistente
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : activeViewMode === "evaluations" ? (
         selectedEvaluationKey && selectedEvaluationItem ? (
           /* BATCH GRADING VIEW FOR SELECTED EVALUATION */
           <div className="space-y-4">

@@ -28,7 +28,9 @@ import {
   saveGradesToSupabase,
   removeStudentFromClassInSupabase,
   deleteClassesFromSupabase,
-  cleanAvatarUrl
+  cleanAvatarUrl,
+  saveAttendanceToSupabase,
+  fetchAttendanceFromSupabase
 } from "./lib/supabase";
 import {
   IluminaLogo,
@@ -1122,6 +1124,18 @@ export default function App() {
     );
   }
 
+  const handleSaveAttendance = async (materiaId: string, fecha: string, entries: Array<{ alumnoId: string; presente: boolean }>) => {
+    const res = await saveAttendanceToSupabase(materiaId, fecha, entries);
+    if (res.success) {
+      setSuccessToast("¡Asistencia guardada correctamente!");
+      setTimeout(() => setSuccessToast(""), 3000);
+    }
+  };
+
+  const handleFetchAttendance = async (materiaId: string, fecha: string) => {
+    return await fetchAttendanceFromSupabase(materiaId, fecha);
+  };
+
   // 2. MAIN TEACHER DASHBOARD: When teacher is logged in
   return (
     <div className="app">
@@ -1393,6 +1407,8 @@ export default function App() {
                     onSaveStudentGrades={handleSaveStudentGrades}
                     onSaveStudentsGradesBatch={handleSaveStudentsGradesBatch}
                     onUpdateSubjectEvaluations={handleUpdateSubjectEvaluations}
+                    onSaveAttendance={handleSaveAttendance}
+                    onFetchAttendance={handleFetchAttendance}
                     onPendingChangesChange={(hasChanges, saveFn) => {
                       setHasUnsavedSectionChanges(hasChanges);
                       setSaveSectionChangesFn(() => saveFn);
