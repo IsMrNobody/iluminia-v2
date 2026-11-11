@@ -1847,8 +1847,8 @@ export default function App() {
       </AnimatePresence>
 
       {/* Floating Save Button when there are unsaved section changes */}
-      {hasUnsavedSectionChanges && saveSectionChangesFn && (
-        <div className="fixed bottom-40 sm:bottom-24 right-6 z-55">
+      {activeTab === "classes" && viewMode === "section_students" && hasUnsavedSectionChanges && saveSectionChangesFn && (
+        <div className="fixed bottom-24 right-6 z-55">
           <button
             onClick={() => saveSectionChangesFn()}
             className="w-14 h-14 rounded-full bg-gradient-to-br from-[#F4DFA6] to-[#E3B866] border-2 border-[#7A4B2A] shadow-[0_4px_0_#7A4B2A] flex items-center justify-center text-[#3E2514] hover:translate-y-[-2px] hover:shadow-[0_6px_0_#7A4B2A] active:translate-y-[2px] active:shadow-[0_2px_0_#7A4B2A] transition-all cursor-pointer animate-bounce"
@@ -1860,9 +1860,9 @@ export default function App() {
         </div>
       )}
 
-      {/* Floating Golden Magnifying Glass Button for Student Quick Grid */}
-      {currentClass && currentClass.students && currentClass.students.length > 0 && !isStudentGridOpen && (
-        <div className="fixed bottom-24 sm:bottom-8 right-6 z-55">
+      {/* Floating Golden Magnifying Glass Button for Student Quick Grid — only inside individual class/section view */}
+      {activeTab === "classes" && viewMode === "section_students" && currentClass && currentClass.students && currentClass.students.length > 0 && !isStudentGridOpen && (
+        <div className="fixed bottom-6 right-6 z-55">
           <button
             onClick={() => setIsStudentGridOpen(prev => !prev)}
             className="w-14 h-14 rounded-full bg-gradient-to-br from-[#F4DFA6] to-[#E3B866] border-2 border-[#7A4B2A] shadow-[0_4px_0_#7A4B2A] flex items-center justify-center text-[#3E2514] hover:translate-y-[-2px] hover:shadow-[0_6px_0_#7A4B2A] active:translate-y-[2px] active:shadow-[0_2px_0_#7A4B2A] transition-all cursor-pointer"

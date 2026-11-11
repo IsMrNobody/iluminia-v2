@@ -344,16 +344,6 @@ export default function ClassOverviewView({
     <div className="space-y-6">
       {!(activeViewMode === "evaluations" && selectedEvaluationKey) && (
         <>
-          {/* Back chip */}
-          <button
-            onClick={handleSafeBack}
-            className="chip group"
-            title="Volver a la lista de materias"
-          >
-            <ArrowLeft className="w-4 h-4 text-[#D97706] group-hover:-translate-x-1 transition-transform" />
-            <span>Clases</span>
-          </button>
-
           {/* Top Heading Row with Evaluations / Students Toggle & Add Students */}
           <div className="row justify-between items-start gap-4">
             <div>
@@ -402,15 +392,56 @@ export default function ClassOverviewView({
               })}
             </div>
           )}
+
+          {/* Desktop Mode Tabs (Alumnos / Evaluaciones / Asistencia) — using .tab style */}
+          {!(activeViewMode === "evaluations" && selectedEvaluationKey) && (
+            <div className="hidden md:flex items-end gap-1.5 pt-4 border-b-2 border-[#3E2514] mb-6">
+              <button
+                onClick={() => {
+                  setActiveViewMode("students");
+                  setSelectedEvaluationKey(null);
+                }}
+                className={`tab ${activeViewMode === "students" ? "active" : ""}`}
+                aria-current={activeViewMode === "students" ? "page" : undefined}
+              >
+                <SpriteObject name="libroabierto" size={20} />
+                <span>Alumnos ({localStudents.length})</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setActiveViewMode("evaluations");
+                  setSelectedEvaluationKey(null);
+                }}
+                className={`tab ${activeViewMode === "evaluations" ? "active" : ""}`}
+                aria-current={activeViewMode === "evaluations" ? "page" : undefined}
+              >
+                <SpriteObject name="birrete" size={20} />
+                <span>Evaluaciones</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setActiveViewMode("attendance");
+                  setSelectedEvaluationKey(null);
+                }}
+                className={`tab ${activeViewMode === "attendance" ? "active" : ""}`}
+                aria-current={activeViewMode === "attendance" ? "page" : undefined}
+              >
+                <Users className="w-5 h-5 text-amber-700" />
+                <span>Asistencia</span>
+              </button>
+            </div>
+          )}
         </>
       )}
 
       {/* CONDITIONAL VIEWS: Students vs Evaluations vs Attendance */}
       <div style={{ position: "relative" }}>
-        {/* Toggle Modo: Alumnos / Evaluaciones / Asistencias — oculto cuando se está dentro de una evaluación */}
+        {/* Toggle Modo: Alumnos / Evaluaciones / Asistencias — oculto cuando se está dentro de una evaluación (visible solo en móvil) */}
         {!(activeViewMode === "evaluations" && selectedEvaluationKey) && (
         <div
-          className="fixed right-6 bottom-40 z-50 flex flex-col items-center gap-1"
+          className="fixed md:hidden right-6 bottom-42 z-50 flex flex-col items-center gap-1"
         >
           <button
             onClick={() => {
@@ -507,8 +538,8 @@ export default function ClassOverviewView({
               </div>
             </div>
 
-            {/* Students List maintaining the same numbered format with highlighted absent students */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {/* Mobile Cards View */}
+            <div className="grid grid-cols-1 gap-3 md:hidden">
               {localStudents.map((std, idx) => {
                 const isPresent = attendanceMap[std.id] !== false;
                 return (
@@ -559,6 +590,84 @@ export default function ClassOverviewView({
                   </div>
                 );
               })}
+            </div>
+
+            {/* Desktop Dashboard Table View */}
+            <div className="hidden md:block bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold text-xs uppercase tracking-wider">
+                    <th className="py-3.5 px-4 text-center w-16">Nº</th>
+                    <th className="py-3.5 px-4">Estudiante</th>
+                    <th className="py-3.5 px-4">Cédula de Identidad</th>
+                    <th className="py-3.5 px-4 text-center">Estado</th>
+                    <th className="py-3.5 px-4 text-right">Acción Rápida</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {localStudents.map((std, idx) => {
+                    const isPresent = attendanceMap[std.id] !== false;
+                    return (
+                      <tr
+                        key={std.id}
+                        onClick={() => handleToggleAttendance(std.id)}
+                        className={`cursor-pointer transition-colors ${
+                          isPresent ? "hover:bg-slate-50/80 bg-white" : "bg-rose-50/60 hover:bg-rose-50"
+                        }`}
+                      >
+                        <td className="py-3 px-4 text-center">
+                          <span className={`inline-flex w-8 h-8 rounded-lg items-center justify-center font-mono font-black text-xs ${
+                            isPresent ? "bg-amber-100 text-amber-800 border border-amber-200" : "bg-rose-600 text-white shadow-sm"
+                          }`}>
+                            {idx + 1}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-3">
+                            <PolaroidAvatar avatarUrl={std.avatarUrl} alt={`${std.firstName} ${std.lastName}`} size={36} />
+                            <span className="font-display text-sm text-slate-900 font-semibold">
+                              {std.firstName} {std.lastName}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 text-slate-600 font-mono text-xs">
+                          {(() => {
+                            const realC = getStudentRealCedula(std);
+                            return realC ? (realC.startsWith("V-") || realC.startsWith("E-") ? realC : `C.I. ${realC}`) : "C.I. Pendiente";
+                          })()}
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          {isPresent ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              <Check className="w-3.5 h-3.5" /> Presente
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase bg-rose-600 text-white shadow-xs">
+                              Inasistente
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleAttendance(std.id);
+                            }}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                              isPresent
+                                ? "bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100"
+                                : "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
+                            }`}
+                          >
+                            {isPresent ? "Marcar Inasistente" : "Marcar Presente"}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
         ) : activeViewMode === "evaluations" ? (
