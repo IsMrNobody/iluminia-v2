@@ -19,7 +19,8 @@ import {
   Users,
   BookOpen,
   Check,
-  ChevronRight
+  ChevronRight,
+  Trash2
 } from "lucide-react";
 
 interface ClassOverviewViewProps {
@@ -359,8 +360,7 @@ export default function ClassOverviewView({
             </div>
 
             <div className="flex items-center gap-2.5 flex-wrap">
-
-              {section.isDefault === false && (
+              {(section.matriculada === false || (section.matriculada === undefined && (section.isDefault === false || !section.students || section.students.length === 0))) && (
                 <button
                   onClick={() => onAddStudent(`${section.gradeYear} • ${section.subjectName}`)}
                   className="btn full-m"
@@ -934,7 +934,7 @@ export default function ClassOverviewView({
                   ? "Prueba cambiando el término de búsqueda o seleccionando otro filtro."
                   : "Inscribe alumnos desde el directorio central para comenzar a evaluar este lapso."}
               </p>
-              {!searchQuery && section.isDefault === false && (
+              {!searchQuery && (section.isDefault === false || !section.students || section.students.length === 0) && (
                 <button
                   onClick={() => onAddStudent(`${section.gradeYear} • ${section.subjectName}`)}
                   className="btn s mt-2"
@@ -1007,15 +1007,31 @@ export default function ClassOverviewView({
                       className="mb-3"
                     />
 
-                    {/* Action Button: Calificar alumno */}
+                    {/* Action Button: Calificar alumno & Retirar */}
                     <div className="flex items-center gap-2 mt-3">
                       <button
                         onClick={() => handleSafeSelectStudent(std.id)}
-                        className="btn s w"
+                        className="btn s flex-1"
                       >
                         <Edit3 className="w-4 h-4 text-[#D97706]" />
                         <span>Calificar alumno</span>
                       </button>
+
+                      {onDeleteStudent && section.matriculada === false && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (window.confirm(`¿Estás seguro de retirar a ${std.firstName} ${std.lastName} de esta sección?`)) {
+                              onDeleteStudent(std.id);
+                            }
+                          }}
+                          className="p-2.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-600 transition shrink-0"
+                          title="Retirar alumno de esta materia"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 );

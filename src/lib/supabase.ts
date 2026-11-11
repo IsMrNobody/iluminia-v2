@@ -479,6 +479,7 @@ export async function registerTeacherInSupabase(input: TeacherRegistrationInput)
               lapso: m.lapso_activo || 1,
               termPercentage: 0,
               students: [],
+              matriculada: m.matriculada ?? true,
             }));
             createdClass = createdClasses[0];
             for (const cls of createdClasses) {
@@ -540,6 +541,7 @@ export async function createSubjectInSupabase(
     lapso?: number;
     teacherId?: string;
     teacherName?: string;
+    matriculada?: boolean;
   }
 ): Promise<{
   success: boolean;
@@ -651,6 +653,7 @@ export async function createSubjectInSupabase(
         lapso: lapso,
         termPercentage: 0,
         students: [],
+        matriculada: subjectData.matriculada ?? true,
       }));
       return {
         success: true,
@@ -672,6 +675,7 @@ export async function createSubjectInSupabase(
       periodo: "2025-2026",
       is_active: true,
       color: "#2563eb",
+      matriculada: subjectData.matriculada ?? true,
     }));
 
     let insertedRows: any[] = [];
@@ -733,6 +737,7 @@ export async function createSubjectInSupabase(
       lapso: m.lapso_activo || lapso,
       termPercentage: 0,
       students: [],
+      matriculada: m.matriculada ?? true,
     }));
 
     // Pre-populate evaluation criteria in Supabase for each created class
@@ -844,6 +849,7 @@ export async function getTeacherClassesFromSupabase(
         lapso: m.lapso_activo || 1,
         termPercentage: 0,
         students: classStudents,
+        matriculada: m.matriculada ?? true,
       });
     }
 
@@ -1303,49 +1309,47 @@ export async function getStudentsForClassFromSupabase(materiaId: string): Promis
     });
     const dedupedMatriculas: any[] = Array.from(uniqueByAlumno.values());
 
-    // 3. Rebuild the roster from alumnos where the alumno's OWN grade + section match the materia.
-    //    This keeps polluted/cross-section matriculas out of every section card.
+    // 3. Rebuild the roster: prioritize explicit matriculas (e.g. classes created without roster),
+    //    otherwise fall back to matching alumnos by grade + section.
     let enrollmentsList: any[] = [];
-    const targetGrade = formatGradeYear(matMeta?.grado_ano || "");
-    const targetSection = String(matMeta?.seccion || "").trim().toUpperCase();
-
-    if (targetGrade && targetSection) {
-      const { data: matchingAlumnos, error: matchingErr } = await client
-        .from("alumnos")
-        .select("id, cedula, nombres, apellidos, avatar_url, email, ano, seccion, list_number")
-        .eq("ano", targetGrade)
-        .ilike("seccion", targetSection);
-
-      if (!matchingErr && matchingAlumnos && matchingAlumnos.length > 0) {
-        const matriculasByAlumno = new Map<string, any>();
-        dedupedMatriculas.forEach((enr: any) => {
-          const key = String(enr.alumno_id || "");
-          if (key && !matriculasByAlumno.has(key)) matriculasByAlumno.set(key, enr);
-        });
-
-        const ordered = matchingAlumnos.sort((a: any, b: any) => {
-          const la = Number(a.list_number || 0);
-          const lb = Number(b.list_number || 0);
-          if (la !== lb) return la === 0 ? 1 : lb === 0 ? -1 : la - lb;
-          return String(a.cedula || "").localeCompare(String(b.cedula || ""));
-        });
-
-        enrollmentsList = ordered.map((a: any, i: number) => {
-          const enr = matriculasByAlumno.get(String(a.id));
-          return {
-            numero_lista: Number(enr?.numero_lista || a.list_number || i + 1),
-            asistencia_porcentaje: enr?.asistencia_porcentaje ?? 100,
-            alumno_id: a.id,
-            alumnos: a,
-          };
-        });
-      }
-    }
-
-    // 4. Fallback: if the materia has no grade/section metadata we cannot filter safely,
-    //    fall back to the deduped matriculas belonging to this materia only.
-    if (enrollmentsList.length === 0 && !(targetGrade && targetSection) && dedupedMatriculas.length > 0) {
+    if (dedupedMatriculas.length > 0) {
       enrollmentsList = dedupedMatriculas;
+    } else {
+      const targetGrade = formatGradeYear(matMeta?.grado_ano || "");
+      const targetSection = String(matMeta?.seccion || "").trim().toUpperCase();
+
+      if (targetGrade && targetSection) {
+        const { data: matchingAlumnos, error: matchingErr } = await client
+          .from("alumnos")
+          .select("id, cedula, nombres, apellidos, avatar_url, email, ano, seccion, list_number")
+          .eq("ano", targetGrade)
+          .ilike("seccion", targetSection);
+
+        if (!matchingErr && matchingAlumnos && matchingAlumnos.length > 0) {
+          const matriculasByAlumno = new Map<string, any>();
+          dedupedMatriculas.forEach((enr: any) => {
+            const key = String(enr.alumno_id || "");
+            if (key && !matriculasByAlumno.has(key)) matriculasByAlumno.set(key, enr);
+          });
+
+          const ordered = matchingAlumnos.sort((a: any, b: any) => {
+            const la = Number(a.list_number || 0);
+            const lb = Number(b.list_number || 0);
+            if (la !== lb) return la === 0 ? 1 : lb === 0 ? -1 : la - lb;
+            return String(a.cedula || "").localeCompare(String(b.cedula || ""));
+          });
+
+          enrollmentsList = ordered.map((a: any, i: number) => {
+            const enr = matriculasByAlumno.get(String(a.id));
+            return {
+              numero_lista: Number(enr?.numero_lista || a.list_number || i + 1),
+              asistencia_porcentaje: enr?.asistencia_porcentaje ?? 100,
+              alumno_id: a.id,
+              alumnos: a,
+            };
+          });
+        }
+      }
     }
 
     if (enrollmentsList.length === 0) {

@@ -127,68 +127,6 @@ export default function SubjectsListView({
       transition={{ duration: 0.25 }}
       className="space-y-6 pb-24"
     >
-      {/* Header Banner */}
-      <div className="card pp p-6 sm:p-7 relative overflow-hidden">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="bg adm">
-                Plan de Estudios
-              </span>
-              <span className="text-[#A38F79]">•</span>
-              <span className="text-xs font-semibold text-[#6E655F]">
-                Docente: <strong className="text-[#2B2623]">{teacherName}</strong>
-              </span>
-            </div>
-            <h2 className="font-display text-2xl sm:text-3xl text-[#2B2623] tracking-tight">
-              Mis Asignaturas
-            </h2>
-            <p className="sub mt-1 max-w-xl">
-              Selecciona una materia para acceder a sus secciones, planillas de notas y nómina de estudiantes.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2.5 flex-wrap">
-          </div>
-        </div>
-
-        {/* Quick summary stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-5 border-t border-[#E5DCD0]">
-          <div className="card sti p-3 bg-white">
-            <span className="text-[10px] font-bold text-[#6E655F] uppercase block tracking-wider">
-              Materias
-            </span>
-            <strong className="font-display text-lg font-black text-[#2B2623]">
-              {subjectGroups.length}
-            </strong>
-          </div>
-          <div className="card sti p-3 bg-white">
-            <span className="text-[10px] font-bold text-[#6E655F] uppercase block tracking-wider">
-              Secciones
-            </span>
-            <strong className="font-display text-lg font-black text-[#D97706]">
-              {totalSections}
-            </strong>
-          </div>
-          <div className="card sti p-3 bg-white">
-            <span className="text-[10px] font-bold text-[#6E655F] uppercase block tracking-wider">
-              Estudiantes
-            </span>
-            <strong className="font-display text-lg font-black text-[#2B2623]">
-              {totalStudents}
-            </strong>
-          </div>
-          <div className="card sti p-3 bg-white">
-            <span className="text-[10px] font-bold text-[#6E655F] uppercase block tracking-wider">
-              Promedio
-            </span>
-            <strong className="font-display text-lg font-black text-[#15803D]">
-              {overallAvg} / 20
-            </strong>
-          </div>
-        </div>
-      </div>
-
       {/* Floating / Sticky Bulk Action Bar when selection mode or items selected */}
       {(isSelectionMode || selectedKeys.size > 0) && (
         <motion.div
@@ -203,8 +141,8 @@ export default function SubjectsListView({
               className="flex items-center gap-2 text-xs font-bold text-slate-200 hover:text-white transition cursor-pointer bg-slate-800/80 hover:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700"
             >
               <div className={`w-4 h-4 rounded flex items-center justify-center border ${
-                allFilteredSelected 
-                  ? "bg-blue-600 border-blue-600 text-white" 
+                allFilteredSelected
+                  ? "bg-blue-600 border-blue-600 text-white"
                   : "border-slate-400 bg-transparent"
               }`}>
                 {allFilteredSelected && <Check className="w-3 h-3" />}
@@ -344,14 +282,14 @@ export default function SubjectsListView({
             {searchQuery ? "No se encontraron materias" : "Sin materias asignadas"}
           </h3>
           <p className="text-xs text-slate-500 mt-1 mb-5 max-w-sm">
-            {searchQuery 
-              ? `No hay materias que coincidan con "${searchQuery}".` 
+            {searchQuery
+              ? `No hay materias que coincidan con "${searchQuery}".`
               : "Registra tu primera asignatura para gestionar secciones, estudiantes y cargar calificaciones."}
           </p>
           {searchQuery ? (
             <button
               onClick={() => setSearchQuery("")}
-              className="text-xs font-bold text-blue-600 hover:underline cursor-pointer"
+              className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs uppercase px-4 py-2.5 rounded-xl transition"
             >
               Limpiar búsqueda
             </button>
@@ -366,6 +304,68 @@ export default function SubjectsListView({
           )}
         </div>
       )}
+
+      {/* Header Banner moved to bottom */}
+      <div className="card pp p-6 sm:p-7 relative overflow-hidden mt-8">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="bg adm">
+                Plan de Estudios
+              </span>
+              <span className="text-[#A38F79]">•</span>
+              <span className="text-xs font-semibold text-[#6E655F]">
+                Docente: <strong className="text-[#2B2623]">{teacherName}</strong>
+              </span>
+            </div>
+            <h2 className="font-display text-2xl sm:text-3xl text-[#2B2623] tracking-tight">
+              Mis Asignaturas
+            </h2>
+            <p className="sub mt-1 max-w-xl">
+              Selecciona una materia para acceder a sus secciones, planillas de notas y nómina de estudiantes.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2.5 flex-wrap">
+          </div>
+        </div>
+
+        {/* Quick summary stats */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-5 border-t border-[#E5DCD0]">
+          <div className="card sti p-3 bg-white">
+            <span className="text-[10px] font-bold text-[#6E655F] uppercase block tracking-wider">
+              Materias
+            </span>
+            <strong className="font-display text-lg font-black text-[#2B2623]">
+              {subjectGroups.length}
+            </strong>
+          </div>
+          <div className="card sti p-3 bg-white">
+            <span className="text-[10px] font-bold text-[#6E655F] uppercase block tracking-wider">
+              Secciones
+            </span>
+            <strong className="font-display text-lg font-black text-[#D97706]">
+              {totalSections}
+            </strong>
+          </div>
+          <div className="card sti p-3 bg-white">
+            <span className="text-[10px] font-bold text-[#6E655F] uppercase block tracking-wider">
+              Estudiantes
+            </span>
+            <strong className="font-display text-lg font-black text-[#2B2623]">
+              {totalStudents}
+            </strong>
+          </div>
+          <div className="card sti p-3 bg-white">
+            <span className="text-[10px] font-bold text-[#6E655F] uppercase block tracking-wider">
+              Promedio
+            </span>
+            <strong className="font-display text-lg font-black text-[#15803D]">
+              {overallAvg} / 20
+            </strong>
+          </div>
+        </div>
+      </div>
 
       {/* Modal de Confirmación de Eliminación */}
       <AnimatePresence>

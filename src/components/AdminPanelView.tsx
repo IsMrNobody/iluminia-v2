@@ -501,7 +501,7 @@ export default function AdminPanelView({
 
   const handleDeleteStudentConfirm = async () => {
     if (!studentToDelete) return;
-    await deleteRegisteredStudent(studentToDelete.id);
+    await deleteRegisteredStudent(studentToDelete.id || studentToDelete.cedula);
     setStudentToDelete(null);
     await loadStudents(studentYearFilter);
     showToast("Alumno eliminado del padrón escolar.");

@@ -142,8 +142,8 @@ export function saveRegisteredStudent(student: Partial<RegisteredStudent> & { fi
   return fullStudent;
 }
 
-export function deleteRegisteredStudent(cedulaOrId: string): void {
-  // no-op locally
+export async function deleteRegisteredStudent(cedulaOrId: string): Promise<boolean> {
+  return await deleteStudentFromDatabase(cedulaOrId);
 }
 
 export function syncRegisteredStudentsWithClasses(sections: ClassSection[]): { updatedClasses: ClassSection[]; addedCount: number } {

@@ -56,6 +56,7 @@ export interface ClassSection {
   coverUrl?: string;
   students: Student[];
   isDefault?: boolean;
+  matriculada?: boolean;
 }
 
 export interface SubjectGroup {

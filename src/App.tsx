@@ -17,7 +17,8 @@ import {
   getRegisteredStudentsForSection,
   convertRegisteredToClassStudents,
   fetchRegisteredStudentsFromDatabase,
-  syncRegisteredStudentsWithClasses
+  syncRegisteredStudentsWithClasses,
+  normalizeYear
 } from "./lib/adminService";
 import { AddStudentsModal, StudentCandidate } from "./components/AddStudentsModal";
 import {
@@ -699,27 +700,78 @@ export default function App() {
       return nextClasses;
     });
 
-    // Persist enrollments into Supabase matriculas
+    // Persist enrollments into Supabase matriculas ensuring existing student ID is reused without creating duplicates
     try {
       const client: any = getSupabaseClient();
       const baseCount = currentClass.students.length;
       for (let i = 0; i < toEnroll.length; i++) {
         const cand = toEnroll[i];
-        if (cand.id && !cand.id.startsWith("std-enr-") && !cand.id.startsWith("std-cand-")) {
+        let dbAlumnoId = cand.id;
+
+        try {
+          let foundId: string | null = null;
+
+          if (cand.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cand.id)) {
+            const { data: byId } = await client
+              .from("alumnos")
+              .select("id")
+              .eq("id", cand.id)
+              .maybeSingle();
+            if (byId?.id) foundId = byId.id;
+          }
+
+          if (!foundId && cand.cedula && cand.cedula.trim() && !cand.cedula.startsWith("V-10")) {
+            const { data: byCed } = await client
+              .from("alumnos")
+              .select("id")
+              .eq("cedula", cand.cedula.trim())
+              .maybeSingle();
+            if (byCed?.id) foundId = byCed.id;
+          }
+
+          if (!foundId) {
+            const { data: byName } = await client
+              .from("alumnos")
+              .select("id")
+              .ilike("nombres", cand.firstName.trim())
+              .ilike("apellidos", cand.lastName.trim())
+              .maybeSingle();
+            if (byName?.id) foundId = byName.id;
+          }
+
+          if (foundId) {
+            dbAlumnoId = foundId;
+          } else {
+            const cedulaToUse = cand.cedula && !cand.cedula.startsWith("V-10")
+              ? cand.cedula.trim()
+              : `V-${Math.floor(10000000 + Math.random() * 89999999)}`;
+
+            const { data: alumnoRes } = await client
+              .from("alumnos")
+              .upsert({
+                nombres: cand.firstName.trim(),
+                apellidos: cand.lastName.trim(),
+                cedula: cedulaToUse,
+                avatar_url: cand.avatarUrl || "",
+              }, { onConflict: "cedula" })
+              .select("id")
+              .maybeSingle();
+
+            if (alumnoRes?.id) {
+              dbAlumnoId = alumnoRes.id;
+            }
+          }
+        } catch (err) {
+          console.warn("Could not resolve student in alumnos table:", err);
+        }
+
+        if (dbAlumnoId) {
           await client.from("matriculas").upsert({
             materia_id: currentClass.id,
-            alumno_id: cand.id,
+            alumno_id: dbAlumnoId,
             numero_lista: baseCount + i + 1,
             asistencia_porcentaje: 100,
-          }, { onConflict: "materia_id,alumno_id" }).catch(() => {});
-        } else {
-          await addStudentToSupabase(currentClass.id, {
-            firstName: cand.firstName,
-            lastName: cand.lastName,
-            cedula: cand.cedula,
-            avatarUrl: cand.avatarUrl,
-            currentClassStudentsCount: baseCount + i,
-          }).catch(() => {});
+          }, { onConflict: "materia_id,alumno_id" });
         }
       }
     } catch (e) {
@@ -879,39 +931,64 @@ export default function App() {
       lapso: activeLapso,
       teacherId: teacher.id,
       teacherName: teacher.name,
+      matriculada: fillWithDefault,
     });
 
     if (result.success) {
-      const createdList = result.newClasses && result.newClasses.length > 0 
-        ? result.newClasses 
+      const createdList = result.newClasses && result.newClasses.length > 0
+        ? result.newClasses
         : (result.newClass ? [result.newClass] : []);
 
       if (createdList.length > 0) {
-        // Automatically populate with pre-registered students for this year and section if requested
-        const enrichedList = createdList.map(cls => {
+        const allReg = await fetchRegisteredStudentsFromDatabase().catch(() => getRegisteredStudentsForSection(currentSubjectGroup.gradeYear, cleanLetter));
+        const enrichedList = await Promise.all(createdList.map(async cls => {
           if (fillWithDefault) {
-            if (!cls.students || cls.students.length === 0) {
-              const matching = getRegisteredStudentsForSection(cls.gradeYear, cls.sectionLetter);
-              if (matching.length > 0) {
-                return {
-                  ...cls,
-                  students: convertRegisteredToClassStudents(matching),
-                  isDefault: true,
-                };
+            const matching = allReg.filter(s => {
+              const yrMatch = s.gradeYear && cls.gradeYear && normalizeYear(s.gradeYear) === normalizeYear(cls.gradeYear);
+              const secMatch = (s.sectionLetter || "A").trim().toUpperCase() === (cls.sectionLetter || "A").trim().toUpperCase();
+              return yrMatch && secMatch;
+            });
+
+            if (matching.length > 0) {
+              const client = getSupabaseClient();
+              if (client) {
+                for (let idx = 0; idx < matching.length; idx++) {
+                  const std = matching[idx];
+                  try {
+                    await client.from("matriculas").upsert({
+                      materia_id: cls.id,
+                      alumno_id: std.id,
+                      numero_lista: idx + 1,
+                      asistencia_porcentaje: 100
+                    }, { onConflict: "materia_id,alumno_id" });
+                  } catch (e) {
+                    console.warn("Error inserting section matricula in Supabase:", e);
+                  }
+                }
               }
+
+              return {
+                ...cls,
+                students: convertRegisteredToClassStudents(matching),
+                isDefault: true,
+                matriculada: true,
+              };
             }
             return {
               ...cls,
+              students: [],
               isDefault: true,
+              matriculada: true,
             };
           } else {
             return {
               ...cls,
               students: [],
               isDefault: false,
+              matriculada: false,
             };
           }
-        });
+        }));
 
         setClasses(prev => {
           const next = [...prev, ...enrichedList];
@@ -944,30 +1021,55 @@ export default function App() {
       lapso: activeLapso,
       teacherId: teacher.id,
       teacherName: teacher.name,
+      matriculada: fillWithDefaultStudents,
     });
 
     setIsCreatingClass(false);
-    const createdList = result.newClasses && result.newClasses.length > 0 
-      ? result.newClasses 
+    const createdList = result.newClasses && result.newClasses.length > 0
+      ? result.newClasses
       : (result.newClass ? [result.newClass] : []);
 
     if (result.success && createdList.length > 0) {
+      const allReg = await fetchRegisteredStudentsFromDatabase().catch(() => []);
       // Auto-fill students registered for this year and section if requested; otherwise leave empty for composite groups
-      const enrichedList = createdList.map(cls => {
+      const enrichedList = await Promise.all(createdList.map(async cls => {
         if (fillWithDefaultStudents) {
-          if (!cls.students || cls.students.length === 0) {
-            const matching = getRegisteredStudentsForSection(cls.gradeYear, cls.sectionLetter);
-            if (matching.length > 0) {
-              return {
-                ...cls,
-                students: convertRegisteredToClassStudents(matching),
-                isDefault: true,
-              };
+          const matching = allReg.filter(s => {
+            const yrMatch = s.gradeYear && cls.gradeYear && normalizeYear(s.gradeYear) === normalizeYear(cls.gradeYear);
+            const secMatch = (s.sectionLetter || "A").trim().toUpperCase() === (cls.sectionLetter || "A").trim().toUpperCase();
+            return yrMatch && secMatch;
+          });
+
+          if (matching.length > 0) {
+            const client = getSupabaseClient();
+            if (client) {
+              for (let idx = 0; idx < matching.length; idx++) {
+                const std = matching[idx];
+                try {
+                  await client.from("matriculas").upsert({
+                    materia_id: cls.id,
+                    alumno_id: std.id,
+                    numero_lista: idx + 1,
+                    asistencia_porcentaje: 100
+                  }, { onConflict: "materia_id,alumno_id" });
+                } catch (e) {
+                  console.warn("Error inserting initial matricula in Supabase:", e);
+                }
+              }
             }
+
+            return {
+              ...cls,
+              students: convertRegisteredToClassStudents(matching),
+              isDefault: true,
+              matriculada: true,
+            };
           }
           return {
             ...cls,
+            students: [],
             isDefault: true,
+            matriculada: true,
           };
         } else {
           // Explicitly empty student list for mixed/composite subjects
@@ -975,9 +1077,10 @@ export default function App() {
             ...cls,
             students: [],
             isDefault: false,
+            matriculada: false,
           };
         }
-      });
+      }));
 
       setClasses(prev => {
         const next = [...prev];
