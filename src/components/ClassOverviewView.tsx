@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { ClassSection, Student } from "../types";
 import { getWeightedFinalScore } from "../mockData";
 import { getStudentRealCedula } from "../lib/adminService";
+import { parseAndSyncHojaActuacion } from "../lib/excelParser";
 import {
   PolaroidAvatar,
   WaxSealNumber,
@@ -20,7 +21,10 @@ import {
   BookOpen,
   Check,
   ChevronRight,
-  Trash2
+  Trash2,
+  Upload,
+  ArrowUp,
+  RefreshCw
 } from "lucide-react";
 
 interface ClassOverviewViewProps {
@@ -38,6 +42,7 @@ interface ClassOverviewViewProps {
   onUpdateSubjectEvaluations?: (subjectName: string, gradeYear: string, updatedLapsoContent: any) => void;
   onSaveAttendance?: (materiaId: string, fecha: string, entries: Array<{ alumnoId: string; presente: boolean }>) => void;
   onFetchAttendance?: (materiaId: string, fecha: string) => Promise<Array<{ alumnoId: string; presente: boolean }>>;
+  onBulkImportGrades?: (file: File) => Promise<void>;
 }
 
 type FilterType = "TODOS" | "APROBADOS" | "APLAZADOS" | "PENDIENTES";
@@ -56,7 +61,8 @@ export default function ClassOverviewView({
   onPendingChangesChange,
   onUpdateSubjectEvaluations,
   onSaveAttendance,
-  onFetchAttendance
+  onFetchAttendance,
+  onBulkImportGrades
 }: ClassOverviewViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<FilterType>("TODOS");
@@ -142,6 +148,62 @@ export default function ClassOverviewView({
   const [editingEvalKey, setEditingEvalKey] = useState<string | null>(null);
   const [editEvalName, setEditEvalName] = useState("");
   const [editEvalWeight, setEditEvalWeight] = useState(20);
+  const [isImporting, setIsImporting] = useState(false);
+  const [showStickyBar, setShowStickyBar] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowStickyBar(window.scrollY > 150);
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleBulkExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsImporting(true);
+      if (onBulkImportGrades) {
+        await onBulkImportGrades(file);
+      } else {
+        const result = await parseAndSyncHojaActuacion(
+          file,
+          siblingSectionsSorted.length > 0 ? siblingSectionsSorted : [section],
+          activeLapsoNum
+        );
+
+        if (result.batchEntries.length > 0) {
+          if (onSaveStudentsGradesBatch) {
+            onSaveStudentsGradesBatch(result.batchEntries);
+          }
+          if (result.updatedEvaluationMeta && onUpdateSubjectEvaluations) {
+            onUpdateSubjectEvaluations(section.subjectName, section.gradeYear, result.updatedEvaluationMeta);
+          }
+
+          const currentSecStudents = result.updatedSectionMap.get(section.id);
+          if (currentSecStudents) {
+            setLocalStudents(currentSecStudents);
+          }
+
+          alert(`¡Sincronización masiva exitosa! Se actualizaron notas de ${result.batchEntries.length} registros desde el archivo Excel.`);
+        } else {
+          alert('No se encontraron registros de notas válidos en las hojas AVANCE de este archivo.');
+        }
+      }
+    } catch (err) {
+      console.error('Error importing excel:', err);
+      alert('Error al procesar el archivo Excel. Asegúrate de que tenga el formato de hoja de actuación correcto.');
+    } finally {
+      setIsImporting(false);
+      e.target.value = "";
+    }
+  };
 
   useEffect(() => {
     if (activeViewMode === "attendance" && section.id) {
@@ -343,6 +405,55 @@ export default function ClassOverviewView({
 
   return (
     <div className="space-y-6">
+      {/* Sticky Mobile Classroom Navigation & Quick Section Switcher Bar */}
+      {showStickyBar && (
+        <div className="sticky top-14 sm:top-16 z-40 bg-[#FBF6ED]/95 backdrop-blur-md py-2.5 px-3 -mx-4 sm:mx-0 sm:rounded-2xl border-b sm:border border-[#E5DCD0] shadow-md flex items-center justify-between gap-3 animate-fadeIn">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-xs font-black px-2.5 py-1 rounded-lg bg-[#7A4B2A] text-[#FBF6ED] font-mono shrink-0">
+              Sec. {section.sectionLetter}
+            </span>
+            <div className="min-w-0">
+              <h4 className="font-display text-xs sm:text-sm text-[#2B2623] truncate font-bold">
+                {section.subjectName} · {section.gradeYear}
+              </h4>
+              <p className="text-[10px] text-[#6E655F] font-mono truncate">
+                {localStudents.length} alumnos • Lapso {activeLapsoNum}
+              </p>
+            </div>
+          </div>
+
+          {siblingSectionsSorted.length > 1 && (
+            <div className="flex items-center gap-1 overflow-x-auto shrink-0 py-0.5 max-w-[150px] sm:max-w-xs scrollbar-none">
+              {siblingSectionsSorted.map((sib) => {
+                const isCurrent = sib.id === section.id;
+                return (
+                  <button
+                    key={sib.id}
+                    onClick={() => handleSafeSwitchSection(sib.id)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all shrink-0 ${
+                      isCurrent
+                        ? "bg-[#7A4B2A] text-[#FBF6ED] shadow-xs"
+                        : "bg-[#E5DCD0]/60 text-[#3E2514] hover:bg-[#E5DCD0]"
+                    }`}
+                    title={`Sección ${sib.sectionLetter}`}
+                  >
+                    {sib.sectionLetter}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          <button
+            onClick={scrollToTop}
+            className="p-2 rounded-xl bg-[#7A4B2A] hover:bg-[#5E3A20] text-white transition shrink-0 ml-1 shadow-sm"
+            title="Volver arriba"
+          >
+            <ArrowUp className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {!(activeViewMode === "evaluations" && selectedEvaluationKey) && (
         <>
           {/* Top Heading Row with Evaluations / Students Toggle & Add Students */}
@@ -393,9 +504,9 @@ export default function ClassOverviewView({
             </div>
           )}
 
-          {/* Desktop Mode Tabs (Alumnos / Evaluaciones / Asistencia) — using .tab style */}
+          {/* Mode Tabs (Alumnos / Evaluaciones / Asistencia) — visible on mobile and desktop */}
           {!(activeViewMode === "evaluations" && selectedEvaluationKey) && (
-            <div className="hidden md:flex items-end gap-1.5 pt-4 border-b-2 border-[#3E2514] mb-6">
+            <div className="flex items-center sm:items-end gap-1.5 pt-4 border-b-2 border-[#3E2514] mb-6 overflow-x-auto scrollbar-none">
               <button
                 onClick={() => {
                   setActiveViewMode("students");
@@ -438,50 +549,6 @@ export default function ClassOverviewView({
 
       {/* CONDITIONAL VIEWS: Students vs Evaluations vs Attendance */}
       <div style={{ position: "relative" }}>
-        {/* Toggle Modo: Alumnos / Evaluaciones / Asistencias — oculto cuando se está dentro de una evaluación (visible solo en móvil) */}
-        {!(activeViewMode === "evaluations" && selectedEvaluationKey) && (
-        <div
-          className="fixed md:hidden right-6 bottom-42 z-50 flex flex-col items-center gap-1"
-        >
-          <button
-            onClick={() => {
-              if (activeViewMode === "students") {
-                setActiveViewMode("evaluations");
-                setSelectedEvaluationKey(null);
-              } else if (activeViewMode === "evaluations") {
-                setActiveViewMode("attendance");
-                setSelectedEvaluationKey(null);
-              } else {
-                setActiveViewMode("students");
-                setSelectedEvaluationKey(null);
-              }
-            }}
-            className={`w-14 h-14 rounded-full border-2 border-[#7A4B2A] shadow-[0_4px_0_#7A4B2A] flex items-center justify-center transition-all cursor-pointer hover:translate-y-[-2px] active:translate-y-[2px] ${
-              activeViewMode === "attendance"
-                ? "bg-gradient-to-br from-[#FEF3C7] to-[#FDE68A] shadow-[0_4px_0_#D97706] hover:shadow-[0_6px_0_#D97706] active:shadow-[0_2px_0_#D97706] border-[#D97706] text-[#78350F]"
-                : activeViewMode === "evaluations"
-                ? "bg-gradient-to-br from-[#E0E7FF] to-[#C7D2FE] shadow-[0_4px_0_#4338CA] hover:shadow-[0_6px_0_#4338CA] active:shadow-[0_2px_0_#4338CA] border-[#4338CA] text-[#312E81]"
-                : "bg-gradient-to-br from-[#F4DFA6] to-[#E3B866] shadow-[0_4px_0_#7A4B2A] hover:shadow-[0_6px_0_#7A4B2A] active:shadow-[0_2px_0_#7A4B2A] border-[#7A4B2A] text-[#3E2514]"
-            }`}
-            title={
-              activeViewMode === "students"
-                ? "Modo Alumnos — clic para ver Evaluaciones"
-                : activeViewMode === "evaluations"
-                ? "Modo Evaluaciones — clic para ver Asistencias"
-                : "Modo Asistencias — clic para ver Alumnos"
-            }
-            aria-pressed={true}
-          >
-            {activeViewMode === "attendance" ? (
-              <Users className="w-6 h-6" />
-            ) : activeViewMode === "evaluations" ? (
-              <SpriteObject name="birrete" size={32} />
-            ) : (
-              <SpriteObject name="libroabierto" size={32} />
-            )}
-          </button>
-        </div>
-        )}
 
         {activeViewMode === "attendance" ? (
           /* ATTENDANCE MODE VIEW */
@@ -764,14 +831,43 @@ export default function ClassOverviewView({
         ) : (
           /* EVALUATIONS GRID VIEW */
           <div className="space-y-4">
-            <div>
-              <h3 className="text-base font-extrabold text-slate-900 uppercase tracking-tight flex items-center gap-2">
-                <BookOpen className="w-4 h-4 text-amber-600" />
-                <span>Evaluaciones del Lapso {activeLapsoNum} ({evaluationItems.length})</span>
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Selecciona una evaluación (como "Hoja de tarea") para consultar y modificar las notas de todos los alumnos de la sección:
-              </p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900 uppercase tracking-tight flex items-center gap-2">
+                  <BookOpen className="w-4 h-4 text-amber-600" />
+                  <span>Evaluaciones del Lapso {activeLapsoNum} ({evaluationItems.length})</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Selecciona una evaluación o carga masivamente tus notas desde Excel:
+                </p>
+              </div>
+
+              {/* Botón de Carga Masiva de Notas (Excel) con barra de carga animada */}
+              <div className="flex items-center gap-2 shrink-0">
+                <label className={`btn full-m cursor-pointer flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold shadow-sm transition-all relative overflow-hidden ${isImporting ? 'bg-emerald-700 text-white cursor-wait' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}>
+                  {/* Barra de carga de relleno animada */}
+                  {isImporting && (
+                    <div className="absolute inset-0 bg-emerald-500/90 animate-pulse transition-all duration-500 flex items-center">
+                      <div className="h-full bg-emerald-400/80 animate-[shimmer_1.5s_infinite] w-full" style={{ backgroundImage: 'linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.3) 50%, rgba(255,255,255,0) 100%)', backgroundSize: '200% 100%' }} />
+                    </div>
+                  )}
+                  <div className="relative z-10 flex items-center gap-2">
+                    {isImporting ? (
+                      <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                    ) : (
+                      <Upload className="w-4 h-4 text-white" />
+                    )}
+                    <span>{isImporting ? "Sincronizando notas..." : "Cargar Notas (Excel)"}</span>
+                  </div>
+                  <input
+                    type="file"
+                    accept=".xlsx, .xls"
+                    className="hidden"
+                    onChange={handleBulkExcelUpload}
+                    disabled={isImporting}
+                  />
+                </label>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

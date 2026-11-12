@@ -469,6 +469,10 @@ export function importStudentsFromFile(file: File): Promise<{ success: boolean; 
             const row = json[i];
             if (!Array.isArray(row) || row.length === 0) continue;
 
+            const listNumRaw = row[0];
+            const parsedListNum = typeof listNumRaw === 'number' ? listNumRaw : parseInt(String(listNumRaw || "").trim(), 10);
+            const listNumber = !isNaN(parsedListNum) && parsedListNum > 0 ? parsedListNum : (i - 3);
+
             const apellidos = String(row[1] || "").trim();
             const nombres = String(row[2] || "").trim();
             const cedula = String(row[3] || "").trim();
@@ -491,7 +495,8 @@ export function importStudentsFromFile(file: File): Promise<{ success: boolean; 
                 lastName: apellidos.toUpperCase(),
                 gradeYear,
                 sectionLetter: sectionLetter.length === 1 ? sectionLetter : "A",
-                createdAt: new Date().toISOString()
+                createdAt: new Date().toISOString(),
+                listNumber
               });
             }
           }
@@ -523,7 +528,7 @@ export function importStudentsFromFile(file: File): Promise<{ success: boolean; 
                 apellidos: s.lastName,
                 email: `${(s.firstName || "alumno").toLowerCase().replace(/\s+/g, "")}${idx}@ilumina.edu`,
                 avatar_url: encodeStudentAvatar(s.avatarUrl || "", s.gradeYear, s.sectionLetter),
-                list_number: idx + 1,
+                list_number: s.listNumber || (idx + 1),
                 ano: s.gradeYear,
                 seccion: s.sectionLetter
               };

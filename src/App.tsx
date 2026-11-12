@@ -21,6 +21,7 @@ import {
   normalizeYear
 } from "./lib/adminService";
 import { AddStudentsModal, StudentCandidate } from "./components/AddStudentsModal";
+import { parseAndSyncHojaActuacion } from "./lib/excelParser";
 import {
   getSupabaseClient,
   createSubjectInSupabase,
@@ -651,6 +652,80 @@ export default function App() {
     }
   };
 
+  // Handle bulk importing and syncing grades across all sibling sections from an Excel file
+  const handleBulkImportGrades = async (file: File) => {
+    if (!currentClass) return;
+    const lapsoKey = activeLapso || 1;
+
+    try {
+      const result = await parseAndSyncHojaActuacion(file, siblingSections, lapsoKey);
+
+      if (result.batchEntries.length === 0) {
+        setSuccessToast("No se encontraron registros de notas válidos en el archivo.");
+        setTimeout(() => setSuccessToast(""), 3000);
+        return;
+      }
+
+      // 1. Persist each section's students to their respective section ID in Supabase (including creating new ones if marked isNew)
+      for (const [sectionId, students] of result.updatedSectionMap.entries()) {
+        for (let idx = 0; idx < students.length; idx++) {
+          const std: any = students[idx];
+          if (std.isNew) {
+            const addRes = await addStudentToSupabase(sectionId, {
+              firstName: std.firstName,
+              lastName: std.lastName,
+              cedula: std.cedula,
+              currentClassStudentsCount: idx
+            });
+            if (addRes.success && addRes.student?.id) {
+              std.id = addRes.student.id;
+              delete std.isNew;
+            }
+          }
+          const stdGrades = std.grades?.[lapsoKey] || std.grades?.[1];
+          if (stdGrades) {
+            await saveGradesToSupabase(sectionId, std.id, stdGrades, lapsoKey);
+          }
+        }
+      }
+
+      // 2. Optimistic update of classes state across all sibling sections
+      setClasses(prevClasses => {
+        return prevClasses.map(cls => {
+          const updatedStudentsForSec = result.updatedSectionMap.get(cls.id);
+          if (updatedStudentsForSec) {
+            return {
+              ...cls,
+              students: updatedStudentsForSec
+            };
+          }
+          return cls;
+        });
+      });
+
+      // 3. Update evaluation metadata if present in Excel
+      if (result.updatedEvaluationMeta) {
+        await handleUpdateSubjectEvaluations(currentClass.subjectName, currentClass.gradeYear, result.updatedEvaluationMeta);
+      }
+
+      // 4. Query fresh classes from Supabase to ensure authoritative state
+      const teacherIdentifier = teacher?.id || teacher?.email || "";
+      if (teacherIdentifier) {
+        const freshClasses = await getTeacherClassesFromSupabase(teacherIdentifier, teacher.name);
+        if (freshClasses && freshClasses.length > 0) {
+          setClasses(freshClasses);
+        }
+      }
+
+      setSuccessToast(`¡Notas de ${siblingSections.length} secciones sincronizadas y guardadas con éxito!`);
+      setTimeout(() => setSuccessToast(""), 4000);
+    } catch (e) {
+      console.error("Error bulk importing grades:", e);
+      setSuccessToast("Error al sincronizar notas desde el archivo Excel.");
+      setTimeout(() => setSuccessToast(""), 3000);
+    }
+  };
+
   // Handle adding existing candidate students (from directory or any other section/year) to the current class
   const handleAddExistingStudentsToClass = async (candidates: StudentCandidate[]) => {
     if (!currentClass || candidates.length === 0) return;
@@ -950,7 +1025,7 @@ export default function App() {
             });
 
             if (matching.length > 0) {
-              const client = getSupabaseClient();
+              const client: any = getSupabaseClient();
               if (client) {
                 for (let idx = 0; idx < matching.length; idx++) {
                   const std = matching[idx];
@@ -1041,7 +1116,7 @@ export default function App() {
           });
 
           if (matching.length > 0) {
-            const client = getSupabaseClient();
+            const client: any = getSupabaseClient();
             if (client) {
               for (let idx = 0; idx < matching.length; idx++) {
                 const std = matching[idx];
@@ -1512,6 +1587,7 @@ export default function App() {
                     onUpdateSubjectEvaluations={handleUpdateSubjectEvaluations}
                     onSaveAttendance={handleSaveAttendance}
                     onFetchAttendance={handleFetchAttendance}
+                    onBulkImportGrades={handleBulkImportGrades}
                     onPendingChangesChange={(hasChanges, saveFn) => {
                       setHasUnsavedSectionChanges(hasChanges);
                       setSaveSectionChangesFn(() => saveFn);
@@ -1965,7 +2041,7 @@ export default function App() {
 
       {/* Floating Golden Magnifying Glass Button for Student Quick Grid — only inside individual class/section view */}
       {activeTab === "classes" && viewMode === "section_students" && currentClass && currentClass.students && currentClass.students.length > 0 && !isStudentGridOpen && (
-        <div className="fixed bottom-6 right-6 z-55">
+        <div className="fixed right-6 z-55" style={{ bottom: "84px" }}>
           <button
             onClick={() => setIsStudentGridOpen(prev => !prev)}
             className="w-14 h-14 rounded-full bg-gradient-to-br from-[#F4DFA6] to-[#E3B866] border-2 border-[#7A4B2A] shadow-[0_4px_0_#7A4B2A] flex items-center justify-center text-[#3E2514] hover:translate-y-[-2px] hover:shadow-[0_6px_0_#7A4B2A] active:translate-y-[2px] active:shadow-[0_2px_0_#7A4B2A] transition-all cursor-pointer"
